@@ -34,6 +34,7 @@ export const getPrices = defineTool({
     "Retrieve historical stock price data for a company. Returns daily open, high, low, close prices and trading volume. Supports date range filtering.",
   parameters,
   category: "finance",
+  cacheable: false, // price data should always be fresh
   execute: async (params) => {
     const start = performance.now();
     try {

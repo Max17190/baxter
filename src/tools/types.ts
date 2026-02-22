@@ -8,10 +8,11 @@ export interface ToolDefinition<TParams extends z.ZodType = z.ZodType<any>> {
   description: string;
   parameters: TParams;
   category: ToolCategory;
+  cacheable?: boolean; // default true — set false for tools needing fresh data
   execute: (params: z.infer<TParams>) => Promise<ToolResult>;
 }
 
-export type ToolCategory = "firecrawl" | "finance" | "calculation";
+export type ToolCategory = "firecrawl" | "finance" | "calculation" | "edgar";
 
 /** Tool execution options */
 export interface ToolExecutionOptions {

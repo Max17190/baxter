@@ -1,5 +1,7 @@
 import type { z } from "zod";
 import type { ToolCategory, ToolDefinition } from "./types.js";
+import { createCache } from "../utils/cache.js";
+import type { ToolResult } from "../types.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: Registry stores heterogeneous tool types
 type AnyToolDefinition = ToolDefinition<z.ZodType<any>>;
@@ -7,6 +9,7 @@ type AnyToolDefinition = ToolDefinition<z.ZodType<any>>;
 /** Central registry for all available tools */
 export class ToolRegistry {
   private tools = new Map<string, AnyToolDefinition>();
+  private cache = createCache<{ result: ToolResult }>({ maxSize: 200, ttlMs: 3600_000 });
 
   // biome-ignore lint/suspicious/noExplicitAny: Accept any tool definition
   register(tool: ToolDefinition<any>): void {
@@ -36,7 +39,7 @@ export class ToolRegistry {
     return Array.from(this.tools.values());
   }
 
-  /** Convert tools to Vercel AI SDK format */
+  /** Convert tools to Vercel AI SDK format, with caching for cacheable tools */
   toAISDKTools(names?: string[]): Record<string, AISDKTool> {
     const result: Record<string, AISDKTool> = {};
     const toolsToConvert = names
@@ -44,10 +47,19 @@ export class ToolRegistry {
       : this.getAll();
 
     for (const tool of toolsToConvert) {
+      const isCacheable = tool.cacheable !== false; // default true
       result[tool.name] = {
         description: tool.description,
         parameters: tool.parameters,
         execute: async (params: z.infer<typeof tool.parameters>) => {
+          if (isCacheable) {
+            const cacheKey = `${tool.name}:${JSON.stringify(params)}`;
+            const cached = this.cache.get(cacheKey);
+            if (cached) return cached.result.data;
+            const toolResult = await tool.execute(params);
+            this.cache.set(cacheKey, { result: toolResult });
+            return toolResult.data;
+          }
           const toolResult = await tool.execute(params);
           return toolResult.data;
         },

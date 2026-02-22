@@ -11,13 +11,18 @@ import { Orchestrator } from "./agents/orchestrator.js";
 import { CostTracker } from "./observability/cost-tracker.js";
 import { SkillRegistry } from "./skills/registry.js";
 import { loadBuiltinSkills } from "./skills/loader.js";
+import { Conversation } from "./agents/context/conversation.js";
 import { App } from "./ui/app.js";
 import { registerFinanceTools } from "./tools/finance/register.js";
 import { registerFirecrawlTools } from "./tools/firecrawl/register.js";
 import { registerCalculationTools } from "./tools/calculation/register.js";
+import { registerEdgarTools } from "./tools/edgar/register.js";
 import type { SynthesizedAnswer } from "./types.js";
+import { createChildLogger } from "./utils/logger.js";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+
+const log = createChildLogger("main");
 
 async function main() {
   // Ensure runtime directory exists
@@ -29,6 +34,25 @@ async function main() {
   // Load and validate config
   const config = loadConfig();
 
+  // Initialize OpenTelemetry if configured
+  if (config.otelEndpoint) {
+    try {
+      const { NodeSDK } = await import("@opentelemetry/sdk-node");
+      const { OTLPTraceExporter } = await import("@opentelemetry/exporter-trace-otlp-http");
+      const { SimpleSpanProcessor } = await import("@opentelemetry/sdk-trace-base");
+
+      const exporter = new OTLPTraceExporter({ url: `${config.otelEndpoint}/v1/traces` });
+      const sdk = new NodeSDK({
+        spanProcessors: [new SimpleSpanProcessor(exporter)],
+        serviceName: "baxter",
+      });
+      sdk.start();
+      log.info({ endpoint: config.otelEndpoint }, "OpenTelemetry tracing enabled");
+    } catch (err) {
+      log.warn({ error: err instanceof Error ? err.message : String(err) }, "Failed to initialize OpenTelemetry");
+    }
+  }
+
   // Initialize core services
   const router = new ModelRouter(config);
   const tokenTracker = new TokenTracker();
@@ -39,16 +63,21 @@ async function main() {
   registerFinanceTools(config);
   registerFirecrawlTools(config);
   registerCalculationTools();
+  registerEdgarTools(); // Always available — no API key needed
+
+  // Initialize conversation context
+  const conversation = new Conversation();
 
   // Load skills
   const skillRegistry = new SkillRegistry();
   const skills = await loadBuiltinSkills(process.cwd());
   skillRegistry.registerAll(skills);
 
-  console.log(`Baxter initialized with ${toolRegistry.size} tools, ${skills.length} skills`);
-  console.log(`Providers: ${router.providerRegistry.providers.join(", ")}`);
-  console.log(`Primary: ${router.primaryModelName} | Fast: ${router.fastModelName}`);
-  console.log("");
+  log.info(
+    { tools: toolRegistry.size, skills: skills.length, providers: router.providerRegistry.providers },
+    "Baxter initialized",
+  );
+  log.info({ primary: router.primaryModelName, fast: router.fastModelName }, "Models configured");
 
   // Handle query execution
   async function handleQuery(query: string): Promise<SynthesizedAnswer> {
@@ -57,8 +86,27 @@ async function main() {
       return handleCommand(query);
     }
 
-    const workspace = new Workspace(query);
+    // Resolve follow-up queries using conversation context
+    const resolvedQuery = await conversation.resolveFollowUp(query, router.fast);
+    if (resolvedQuery !== query) {
+      log.info({ original: query, resolved: resolvedQuery }, "Follow-up query resolved");
+    }
+
+    const workspace = new Workspace(resolvedQuery);
     const bus = new MessageBus();
+
+    // Seed workspace with conversation context
+    const convContext = conversation.buildContext();
+    if (convContext) {
+      workspace.setConversationContext(convContext);
+    }
+
+    // Seed workspace with prior facts from memory
+    const priorFacts = memory.findFacts({ minConfidence: 0.7, limit: 20 });
+    if (priorFacts.length > 0) {
+      workspace.setPriorFacts(priorFacts);
+      log.debug({ priorFacts: priorFacts.length }, "Seeded workspace with prior knowledge");
+    }
 
     // Wire bus to UI
     bus.on((event) => app.handleAgentEvent(event));
@@ -69,14 +117,19 @@ async function main() {
       toolRegistry,
       workspace,
       bus,
+      skillRegistry,
+      memory,
     });
 
     const answer = await orchestrator.run();
 
+    // Store conversation turn
+    conversation.addTurn(resolvedQuery, answer.content.slice(0, 500), [...workspace.facts].slice(0, 10));
+
     // Persist to memory
-    memory.storeFacts([...workspace.facts], query);
+    memory.storeFacts([...workspace.facts], resolvedQuery);
     memory.storeQuery({
-      query,
+      query: resolvedQuery,
       complexity: workspace.complexity,
       answer: answer.content,
       confidence: answer.confidence,
@@ -121,6 +174,14 @@ async function main() {
             "## Available Skills",
             ...skillRegistry.getAll().map((s) => `- **${s.name}**: ${s.description}`),
           ].join("\n"),
+          citations: [],
+          confidence: 1,
+          factsUsed: [],
+        };
+
+      case "/cost":
+        return {
+          content: costTracker.getSessionSummary(),
           citations: [],
           confidence: 1,
           factsUsed: [],

@@ -1,0 +1,168 @@
+[
+  {
+    "id": "simple-pe-ratio",
+    "query": "What is Apple's PE ratio?",
+    "expectedComplexity": "simple",
+    "expectedTools": ["get_key_metrics"],
+    "expectedFacts": ["PE ratio", "AAPL"],
+    "category": "lookup"
+  },
+  {
+    "id": "simple-price",
+    "query": "What is the current stock price of TSLA?",
+    "expectedComplexity": "simple",
+    "expectedTools": ["get_prices"],
+    "expectedFacts": ["TSLA", "price"],
+    "category": "lookup"
+  },
+  {
+    "id": "simple-revenue",
+    "query": "What was MSFT's revenue last quarter?",
+    "expectedComplexity": "simple",
+    "expectedTools": ["get_income_statements"],
+    "expectedFacts": ["MSFT", "revenue"],
+    "category": "lookup"
+  },
+  {
+    "id": "medium-margin-comparison",
+    "query": "Compare AAPL and MSFT gross margins over the last 3 years",
+    "expectedComplexity": "medium",
+    "expectedTools": ["get_income_statements", "calculate_financial_ratios"],
+    "expectedFacts": ["gross margin", "AAPL", "MSFT"],
+    "category": "comparison"
+  },
+  {
+    "id": "medium-revenue-growth",
+    "query": "How has NVDA revenue grown over the past 5 years?",
+    "expectedComplexity": "medium",
+    "expectedTools": ["get_income_statements", "calculate_growth_rates"],
+    "expectedFacts": ["NVDA", "revenue", "growth"],
+    "category": "trend"
+  },
+  {
+    "id": "medium-insider-activity",
+    "query": "What has insider trading activity looked like for META recently?",
+    "expectedComplexity": "medium",
+    "expectedTools": ["get_insider_trades"],
+    "expectedFacts": ["META", "insider"],
+    "category": "lookup"
+  },
+  {
+    "id": "medium-debt-analysis",
+    "query": "Analyze Amazon's debt levels and interest coverage",
+    "expectedComplexity": "medium",
+    "expectedTools": ["get_balance_sheets", "calculate_financial_ratios"],
+    "expectedFacts": ["AMZN", "debt", "interest coverage"],
+    "category": "analysis"
+  },
+  {
+    "id": "medium-cash-flow",
+    "query": "How much free cash flow does Google generate?",
+    "expectedComplexity": "medium",
+    "expectedTools": ["get_cash_flows"],
+    "expectedFacts": ["GOOG", "free cash flow"],
+    "category": "lookup"
+  },
+  {
+    "id": "medium-earnings-comparison",
+    "query": "Compare earnings per share growth for AAPL, MSFT, and GOOG",
+    "expectedComplexity": "medium",
+    "expectedTools": ["get_income_statements", "calculate_growth_rates"],
+    "expectedFacts": ["EPS", "AAPL", "MSFT", "GOOG"],
+    "category": "comparison"
+  },
+  {
+    "id": "complex-dcf",
+    "query": "Is NVDA overvalued? Do a DCF analysis",
+    "expectedComplexity": "complex",
+    "expectedTools": ["get_cash_flows", "get_income_statements", "calculate_dcf"],
+    "expectedFacts": ["NVDA", "intrinsic value", "DCF"],
+    "category": "valuation",
+    "expectedSkill": "dcf-valuation"
+  },
+  {
+    "id": "complex-risk-assessment",
+    "query": "What are the key risks of investing in Tesla?",
+    "expectedComplexity": "complex",
+    "expectedTools": ["get_sec_filings", "firecrawl_search"],
+    "expectedFacts": ["TSLA", "risk"],
+    "category": "risk"
+  },
+  {
+    "id": "complex-sector-analysis",
+    "query": "Give me a sector analysis of the semiconductor industry",
+    "expectedComplexity": "complex",
+    "expectedTools": ["firecrawl_search", "get_income_statements"],
+    "expectedFacts": ["semiconductor", "sector"],
+    "category": "sector",
+    "expectedSkill": "sector-analysis"
+  },
+  {
+    "id": "complex-comp-analysis",
+    "query": "Do a comparable analysis of the top cloud computing companies",
+    "expectedComplexity": "complex",
+    "expectedTools": ["get_key_metrics", "calculate_financial_ratios"],
+    "expectedFacts": ["cloud", "comparison", "valuation"],
+    "category": "valuation",
+    "expectedSkill": "comparable-analysis"
+  },
+  {
+    "id": "complex-earnings-deep-dive",
+    "query": "Deep dive into Apple's latest earnings report",
+    "expectedComplexity": "complex",
+    "expectedTools": ["get_income_statements", "get_analyst_estimates"],
+    "expectedFacts": ["AAPL", "earnings", "revenue"],
+    "category": "earnings",
+    "expectedSkill": "earnings-analysis"
+  },
+  {
+    "id": "complex-portfolio",
+    "query": "Review a portfolio of AAPL, MSFT, NVDA, GOOG, and AMZN",
+    "expectedComplexity": "complex",
+    "expectedTools": ["get_key_metrics", "get_prices"],
+    "expectedFacts": ["portfolio", "diversification"],
+    "category": "portfolio",
+    "expectedSkill": "portfolio-review"
+  },
+  {
+    "id": "medium-institutional",
+    "query": "Who are the largest institutional holders of AAPL?",
+    "expectedComplexity": "medium",
+    "expectedTools": ["get_institutional_holdings"],
+    "expectedFacts": ["AAPL", "institutional"],
+    "category": "lookup"
+  },
+  {
+    "id": "medium-analyst-estimates",
+    "query": "What are analyst estimates for TSLA next quarter?",
+    "expectedComplexity": "medium",
+    "expectedTools": ["get_analyst_estimates"],
+    "expectedFacts": ["TSLA", "estimate"],
+    "category": "lookup"
+  },
+  {
+    "id": "complex-sec-filing",
+    "query": "Analyze the risk factors in NVDA's latest 10-K filing",
+    "expectedComplexity": "complex",
+    "expectedTools": ["get_sec_filings", "edgar_search_company"],
+    "expectedFacts": ["NVDA", "10-K", "risk factors"],
+    "category": "filing",
+    "expectedSkill": "sec-filing-analysis"
+  },
+  {
+    "id": "medium-segment",
+    "query": "Break down Amazon's revenue by business segment",
+    "expectedComplexity": "medium",
+    "expectedTools": ["get_segmented_financials"],
+    "expectedFacts": ["AMZN", "segment", "AWS"],
+    "category": "analysis"
+  },
+  {
+    "id": "simple-market-cap",
+    "query": "What is Microsoft's market cap?",
+    "expectedComplexity": "simple",
+    "expectedTools": ["get_key_metrics"],
+    "expectedFacts": ["MSFT", "market cap"],
+    "category": "lookup"
+  }
+]

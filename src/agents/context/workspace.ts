@@ -1,5 +1,6 @@
 import type { Fact, QueryComplexity, ResearchPlan, SynthesizedAnswer } from "../../types.js";
 import type { ValidationIssue, WorkspaceState } from "../types.js";
+import type { SkillMeta } from "../../skills/loader.js";
 
 /**
  * Structured shared workspace that replaces Dexter's flat JSONL scratchpad.
@@ -103,13 +104,60 @@ export class Workspace {
     return this.state.answer;
   }
 
+  // --- Matched Skill ---
+  setMatchedSkill(skill: SkillMeta): void {
+    this.state.matchedSkill = skill;
+  }
+
+  get matchedSkill(): SkillMeta | undefined {
+    return this.state.matchedSkill;
+  }
+
+  // --- Prior Facts (from memory) ---
+  setPriorFacts(facts: Fact[]): void {
+    this.state.priorFacts = facts;
+  }
+
+  get priorFacts(): readonly Fact[] | undefined {
+    return this.state.priorFacts;
+  }
+
+  // --- Conversation Context ---
+  setConversationContext(context: string): void {
+    this.state.conversationContext = context;
+  }
+
+  // --- Bull/Bear Analysis ---
+  setBullAnalysis(analysis: string): void {
+    this.state.bullAnalysis = analysis;
+  }
+
+  setBearAnalysis(analysis: string): void {
+    this.state.bearAnalysis = analysis;
+  }
+
   // --- Context Building ---
   /** Build context string for a specific agent role */
   buildContextFor(agent: string): string {
-    const parts: string[] = [`Query: ${this.state.query}`];
+    const parts: string[] = [];
+
+    // Conversation context (from prior turns)
+    if (this.state.conversationContext) {
+      parts.push(`Conversation History:\n${this.state.conversationContext}\n`);
+    }
+
+    parts.push(`Query: ${this.state.query}`);
 
     if (this.state.complexity) {
       parts.push(`Complexity: ${this.state.complexity}`);
+    }
+
+    // Prior knowledge from memory
+    if (this.state.priorFacts && this.state.priorFacts.length > 0) {
+      parts.push(`\nPrior Knowledge (${this.state.priorFacts.length} facts from previous sessions):`);
+      for (const fact of this.state.priorFacts) {
+        parts.push(`- [${fact.confidence.toFixed(2)}] ${fact.content}`);
+      }
     }
 
     switch (agent) {
@@ -122,6 +170,10 @@ export class Workspace {
         if (this.state.plan) {
           parts.push(`\nResearch Plan:\n${JSON.stringify(this.state.plan, null, 2)}`);
         }
+        // Inject matched skill instructions
+        if (this.state.matchedSkill) {
+          parts.push(`\nSkill Instructions (${this.state.matchedSkill.name}):\n${this.state.matchedSkill.prompt}`);
+        }
         break;
 
       case "analyst":
@@ -131,6 +183,10 @@ export class Workspace {
           for (const fact of this.state.facts) {
             parts.push(`- [${fact.confidence.toFixed(2)}] ${fact.content} (via ${fact.provenance.agent}/${fact.provenance.tool ?? "reasoning"})`);
           }
+        }
+        // Inject matched skill instructions
+        if (this.state.matchedSkill) {
+          parts.push(`\nSkill Instructions (${this.state.matchedSkill.name}):\n${this.state.matchedSkill.prompt}`);
         }
         break;
 
@@ -160,6 +216,11 @@ export class Workspace {
         }
         if (this.state.analysis) {
           parts.push(`\nAnalysis:\n${this.state.analysis}`);
+        }
+        if (this.state.bullAnalysis && this.state.bearAnalysis) {
+          parts.push(`\nBull Case Analysis:\n${this.state.bullAnalysis}`);
+          parts.push(`\nBear Case Analysis:\n${this.state.bearAnalysis}`);
+          parts.push("\nWeigh both the bull and bear perspectives to provide a balanced assessment.");
         }
         if (this.state.validationIssues?.length) {
           parts.push(`\nValidation Issues:`);

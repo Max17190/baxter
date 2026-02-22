@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "../types.js";
-import { getFirecrawlClient } from "./client.js";
+import { getFirecrawlClient, firecrawlBreaker } from "./client.js";
 
 const searchParams = z.object({
   query: z.string().describe("Search query string"),
@@ -21,18 +21,18 @@ export const firecrawlSearch = defineTool({
   execute: async (params) => {
     const start = performance.now();
     try {
-      const client = getFirecrawlClient();
-      const response = await client.search(params.query, {
-        limit: params.limit ?? 5,
+      const result = await firecrawlBreaker.execute(async () => {
+        const client = getFirecrawlClient();
+        return client.search(params.query, { limit: params.limit ?? 5 });
       });
 
       const durationMs = Math.round(performance.now() - start);
 
-      if (!response.success) {
+      if (!result.success) {
         return {
           toolName: "firecrawl_search",
           success: false,
-          error: response.error ?? "Search request failed",
+          error: result.error ?? "Search request failed",
           durationMs,
         };
       }
@@ -40,7 +40,7 @@ export const firecrawlSearch = defineTool({
       return {
         toolName: "firecrawl_search",
         success: true,
-        data: response.data,
+        data: result.data,
         durationMs,
       };
     } catch (error) {

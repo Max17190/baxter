@@ -1,5 +1,7 @@
 import { BaseAgent, type BaseAgentDeps } from "./base-agent.js";
 import type { AgentOutput } from "./types.js";
+import type { ResearchTask } from "../types.js";
+import { extractFactsWithLLM } from "./fact-extractor.js";
 
 const SYSTEM_PROMPT = `You are a financial research agent. Your job is to gather data and facts using the available tools.
 
@@ -14,48 +16,32 @@ Guidelines:
 When you're done, summarize all the facts you found in a structured format.`;
 
 export class ResearcherAgent extends BaseAgent {
-  constructor(deps: BaseAgentDeps) {
-    // Get all available tool names
-    const allTools = deps.toolRegistry.names;
+  private task?: ResearchTask;
+
+  constructor(deps: BaseAgentDeps, task?: ResearchTask) {
+    // Get all available tool names, or narrow to task-specified tools
+    const allTools = task?.tools?.length ? task.tools : deps.toolRegistry.names;
+    const systemPrompt = task
+      ? `${SYSTEM_PROMPT}\n\nYour specific task: ${task.description}\nFocus on using these tools: ${task.tools.join(", ")}`
+      : SYSTEM_PROMPT;
 
     super(
       {
         role: "researcher",
         modelTier: "fast",
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt,
         tools: allTools,
         maxSteps: 10,
       },
       deps,
     );
+
+    this.task = task;
   }
 
   protected async processResult(text: string): Promise<Partial<AgentOutput>> {
-    // Parse the researcher's output into facts
-    const facts = this.extractFacts(text);
+    const facts = await extractFactsWithLLM(text, this.deps.router.fast, "researcher", ["research"]);
     this.deps.workspace.addFacts(facts);
-
     return { facts };
-  }
-
-  private extractFacts(text: string) {
-    // Split the text into meaningful chunks and create facts
-    const lines = text.split("\n").filter((line) => line.trim().length > 0);
-    const facts = [];
-
-    for (const line of lines) {
-      const trimmed = line.replace(/^[-*•]\s*/, "").trim();
-      if (trimmed.length > 20) {
-        // Only meaningful content
-        facts.push(
-          this.createFact(trimmed, {
-            confidence: 0.8,
-            tags: ["research"],
-          }),
-        );
-      }
-    }
-
-    return facts;
   }
 }

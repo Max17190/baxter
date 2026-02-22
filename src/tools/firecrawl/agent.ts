@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "../types.js";
-import { getFirecrawlClient } from "./client.js";
+import { getFirecrawlClient, firecrawlBreaker } from "./client.js";
 
 const agentParams = z.object({
   query: z
@@ -25,14 +25,16 @@ export const firecrawlAgent = defineTool({
 
       if (typeof (client as unknown as Record<string, unknown>).agent === "function") {
         // Firecrawl agent mode is available
-        const response = await (
-          client as unknown as {
-            agent: (
-              query: string,
-              options?: Record<string, unknown>,
-            ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
-          }
-        ).agent(params.query);
+        const response = await firecrawlBreaker.execute(() =>
+          (
+            client as unknown as {
+              agent: (
+                query: string,
+                options?: Record<string, unknown>,
+              ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+            }
+          ).agent(params.query),
+        );
 
         const durationMs = Math.round(performance.now() - start);
 
@@ -48,7 +50,9 @@ export const firecrawlAgent = defineTool({
         data = response.data;
       } else {
         // Fallback: use search with a broader limit and aggregate results
-        const searchResponse = await client.search(params.query, { limit: 5 });
+        const searchResponse = await firecrawlBreaker.execute(() =>
+          client.search(params.query, { limit: 5 }),
+        );
 
         if (!searchResponse.success) {
           const durationMs = Math.round(performance.now() - start);

@@ -1,5 +1,6 @@
 import { BaseAgent, type BaseAgentDeps } from "./base-agent.js";
 import type { AgentOutput } from "./types.js";
+import { extractFactsWithLLM } from "./fact-extractor.js";
 
 const SYSTEM_PROMPT = `You are a financial analyst agent. Your job is to analyze gathered research data and produce insights.
 
@@ -21,48 +22,53 @@ You also have access to financial data tools if you need additional data points.
 
 Output a structured analysis with clear sections and quantitative evidence.`;
 
+export type AnalystPerspective = "neutral" | "bull" | "bear";
+
+const PERSPECTIVE_PROMPTS: Record<AnalystPerspective, string> = {
+  neutral: "",
+  bull: `\n\nIMPORTANT: You are arguing the BULL CASE. Focus on:
+- Growth catalysts and competitive advantages
+- Upside potential and positive trends
+- Why the market may be undervaluing this company
+- Optimistic but data-supported projections
+Be persuasive but honest — back every claim with data.`,
+  bear: `\n\nIMPORTANT: You are arguing the BEAR CASE. Focus on:
+- Risks, threats, and competitive weaknesses
+- Downside potential and negative trends
+- Why the market may be overvaluing this company
+- Conservative or cautious projections
+Be persuasive but honest — back every claim with data.`,
+};
+
 export class AnalystAgent extends BaseAgent {
-  constructor(deps: BaseAgentDeps) {
+  private perspective: AnalystPerspective;
+
+  constructor(deps: BaseAgentDeps, perspective: AnalystPerspective = "neutral") {
     const allTools = deps.toolRegistry.names;
+    const systemPrompt = SYSTEM_PROMPT + PERSPECTIVE_PROMPTS[perspective];
 
     super(
       {
         role: "analyst",
         modelTier: "primary",
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt,
         tools: allTools,
         maxSteps: 8,
       },
       deps,
     );
+
+    this.perspective = perspective;
   }
 
   protected async processResult(text: string): Promise<Partial<AgentOutput>> {
-    // Extract facts from the analysis
-    const facts = this.extractAnalysisFacts(text);
+    const tags = ["analysis"];
+    if (this.perspective !== "neutral") tags.push(this.perspective);
+
+    const facts = await extractFactsWithLLM(text, this.deps.router.fast, "analyst", tags);
     this.deps.workspace.addFacts(facts);
     this.deps.workspace.setAnalysis(text);
 
     return { facts };
-  }
-
-  private extractAnalysisFacts(text: string) {
-    const lines = text.split("\n").filter((line) => line.trim().length > 0);
-    const facts = [];
-
-    for (const line of lines) {
-      const trimmed = line.replace(/^[-*•#]\s*/, "").trim();
-      // Look for lines with numbers (likely quantitative findings)
-      if (trimmed.length > 20 && /\d/.test(trimmed)) {
-        facts.push(
-          this.createFact(trimmed, {
-            confidence: 0.85,
-            tags: ["analysis"],
-          }),
-        );
-      }
-    }
-
-    return facts;
   }
 }

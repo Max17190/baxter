@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "../types.js";
-import { getFirecrawlClient } from "./client.js";
+import { getFirecrawlClient, firecrawlBreaker } from "./client.js";
 
 const extractParams = z.object({
   urls: z
@@ -20,9 +20,9 @@ export const firecrawlExtract = defineTool({
   execute: async (params) => {
     const start = performance.now();
     try {
-      const client = getFirecrawlClient();
-      const response = await client.extract(params.urls, {
-        prompt: params.prompt,
+      const response = await firecrawlBreaker.execute(async () => {
+        const client = getFirecrawlClient();
+        return client.extract(params.urls, { prompt: params.prompt });
       });
 
       const durationMs = Math.round(performance.now() - start);

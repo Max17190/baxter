@@ -1,8 +1,12 @@
 import FirecrawlApp from "@mendable/firecrawl-js";
 import { loadConfig } from "../../config.js";
+import { CircuitBreaker } from "../../utils/circuit-breaker.js";
 
 /** Singleton Firecrawl client instance */
 let _client: FirecrawlApp | null = null;
+
+/** Circuit breaker for Firecrawl API */
+export const firecrawlBreaker = new CircuitBreaker({ name: "firecrawl", failureThreshold: 5, resetTimeoutMs: 60_000 });
 
 /**
  * Get or create the singleton Firecrawl client.

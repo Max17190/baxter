@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "../types.js";
-import { getFirecrawlClient } from "./client.js";
+import { getFirecrawlClient, firecrawlBreaker } from "./client.js";
 
 const crawlParams = z.object({
   url: z.string().url().describe("The starting URL to crawl"),
@@ -28,10 +28,9 @@ export const firecrawlCrawl = defineTool({
   execute: async (params) => {
     const start = performance.now();
     try {
-      const client = getFirecrawlClient();
-      const response = await client.crawlUrl(params.url, {
-        limit: params.limit ?? 10,
-        maxDepth: params.maxDepth ?? 2,
+      const response = await firecrawlBreaker.execute(async () => {
+        const client = getFirecrawlClient();
+        return client.crawlUrl(params.url, { limit: params.limit ?? 10, maxDepth: params.maxDepth ?? 2 });
       });
 
       const durationMs = Math.round(performance.now() - start);

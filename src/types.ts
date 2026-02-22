@@ -61,6 +61,13 @@ export interface ResearchPlan {
   estimatedComplexity: QueryComplexity;
 }
 
+/** A structured data table in the answer */
+export interface AnswerTable {
+  title: string;
+  columns: string[];
+  rows: string[][];
+}
+
 /** Final synthesized answer */
 export interface SynthesizedAnswer {
   content: string;
@@ -68,6 +75,7 @@ export interface SynthesizedAnswer {
   confidence: number;
   factsUsed: FactId[];
   warnings?: string[];
+  tables?: AnswerTable[];
 }
 
 /** Citation in the final answer */

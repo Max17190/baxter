@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "../types.js";
-import { getFirecrawlClient } from "./client.js";
+import { getFirecrawlClient, firecrawlBreaker } from "./client.js";
 
 const scrapeParams = z.object({
   url: z.string().url().describe("The URL to scrape"),
@@ -18,9 +18,9 @@ export const firecrawlScrape = defineTool({
   execute: async (params) => {
     const start = performance.now();
     try {
-      const client = getFirecrawlClient();
-      const response = await client.scrapeUrl(params.url, {
-        formats: params.formats ?? ["markdown"],
+      const response = await firecrawlBreaker.execute(async () => {
+        const client = getFirecrawlClient();
+        return client.scrapeUrl(params.url, { formats: params.formats ?? ["markdown"] });
       });
 
       const durationMs = Math.round(performance.now() - start);

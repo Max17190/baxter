@@ -2,7 +2,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import { BaseAgent, type BaseAgentDeps } from "./base-agent.js";
 import type { AgentOutput } from "./types.js";
-import type { SynthesizedAnswer, Citation } from "../types.js";
+import type { SynthesizedAnswer, Citation, AnswerTable } from "../types.js";
 import { parseModelId } from "../config.js";
 
 const answerSchema = z.object({
@@ -16,6 +16,16 @@ const answerSchema = z.object({
   ),
   confidence: z.number().min(0).max(1),
   warnings: z.array(z.string()).optional(),
+  tables: z
+    .array(
+      z.object({
+        title: z.string().describe("Table title"),
+        columns: z.array(z.string()).describe("Column headers"),
+        rows: z.array(z.array(z.string())).describe("Row data, each row is an array of cell values"),
+      }),
+    )
+    .optional()
+    .describe("Structured data tables for financial comparisons, metrics, etc. Use when presenting tabular data."),
 });
 
 const SYSTEM_PROMPT = `You are a financial research synthesizer. Your job is to take gathered facts, analysis, and validation results and produce a clear, comprehensive answer.
@@ -29,6 +39,8 @@ Guidelines:
 - Structure longer answers with clear sections
 - Include specific numbers, dates, and data points
 - If the data is insufficient to fully answer the question, say so clearly
+- When presenting financial comparisons, metrics breakdowns, or multi-company data, structure them as tables using the "tables" field
+- Tables should have clear column headers and clean cell values (include units like $, %, x)
 
 Format your answer as a well-structured markdown document.`;
 
@@ -71,12 +83,19 @@ export class SynthesizerAgent extends BaseAgent {
       accessedAt: Date.now(),
     }));
 
+    const tables: AnswerTable[] | undefined = result.object.tables?.map((t) => ({
+      title: t.title,
+      columns: t.columns,
+      rows: t.rows,
+    }));
+
     const answer: SynthesizedAnswer = {
       content: result.object.content,
       citations,
       confidence: result.object.confidence,
       factsUsed: this.deps.workspace.facts.map((f) => f.id),
       warnings: result.object.warnings,
+      tables,
     };
 
     this.deps.workspace.setAnswer(answer);

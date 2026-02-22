@@ -9,6 +9,10 @@ import type { Workspace } from "./context/workspace.js";
 import type { MessageBus } from "./context/message-bus.js";
 import type { AgentConfig, AgentOutput } from "./types.js";
 import { parseModelId } from "../config.js";
+import { createChildLogger } from "../utils/logger.js";
+import { startAgentSpan, endSpan, endSpanWithError } from "../observability/tracer.js";
+
+const log = createChildLogger("agent");
 
 export interface BaseAgentDeps {
   router: ModelRouter;
@@ -16,6 +20,8 @@ export interface BaseAgentDeps {
   toolRegistry: ToolRegistry;
   workspace: Workspace;
   bus: MessageBus;
+  skillRegistry?: import("../skills/registry.js").SkillRegistry;
+  memory?: import("./context/memory.js").Memory;
 }
 
 /**
@@ -44,6 +50,9 @@ export abstract class BaseAgent {
   async run(): Promise<AgentOutput> {
     const start = performance.now();
     const { role } = this.config;
+    const span = startAgentSpan(role, this.deps.workspace.query);
+
+    log.info({ role, model: this.modelName }, "Agent starting");
 
     this.deps.bus.emit({
       type: "agent:start",
@@ -105,6 +114,8 @@ export abstract class BaseAgent {
       const durationMs = Math.round(performance.now() - start);
       const output = await this.processResult(result.text, result);
 
+      log.info({ role, durationMs, facts: output.facts?.length ?? 0, tokens: result.usage?.totalTokens }, "Agent completed");
+      endSpan(span, { "agent.duration_ms": durationMs, "agent.facts": output.facts?.length ?? 0 });
       this.deps.bus.emit({ type: "agent:complete", agent: role, durationMs });
 
       return {
@@ -118,6 +129,8 @@ export abstract class BaseAgent {
     } catch (error) {
       const durationMs = Math.round(performance.now() - start);
       const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error({ role, durationMs, error: errorMsg }, "Agent failed");
+      endSpanWithError(span, error instanceof Error ? error : new Error(errorMsg));
       this.deps.bus.emit({ type: "agent:error", agent: role, error: errorMsg });
       return {
         role,

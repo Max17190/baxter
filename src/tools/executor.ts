@@ -2,6 +2,9 @@ import pLimit from "p-limit";
 import type { ToolResult } from "../types.js";
 import type { ToolRegistry } from "./registry.js";
 import type { ToolExecutionOptions } from "./types.js";
+import { createChildLogger } from "../utils/logger.js";
+
+const log = createChildLogger("tool-executor");
 
 const DEFAULT_CONCURRENCY = 5;
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -66,10 +69,12 @@ export class ToolExecutor {
             setTimeout(() => reject(new Error(`Tool "${name}" timed out after ${timeoutMs}ms`)), timeoutMs),
           ),
         ]);
+        log.debug({ tool: name, durationMs: Math.round(performance.now() - start), success: true }, "Tool executed");
         return result;
       } catch (error) {
         const durationMs = Math.round(performance.now() - start);
         if (attempt === retries) {
+          log.warn({ tool: name, durationMs, error: error instanceof Error ? error.message : String(error), attempts: attempt + 1 }, "Tool failed");
           return {
             toolName: name,
             success: false,
@@ -77,6 +82,7 @@ export class ToolExecutor {
             durationMs,
           };
         }
+        log.debug({ tool: name, attempt: attempt + 1, retries }, "Tool retry");
         // Wait before retry with exponential backoff
         await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
       }

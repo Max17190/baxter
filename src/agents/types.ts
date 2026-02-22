@@ -1,4 +1,5 @@
 import type { AgentRole, ModelTier, QueryComplexity, Fact, ResearchPlan, SynthesizedAnswer } from "../types.js";
+import type { SkillMeta } from "../skills/loader.js";
 
 /** Events emitted by agents for UI and observability */
 export type AgentEvent =
@@ -11,7 +12,8 @@ export type AgentEvent =
   | { type: "agent:error"; agent: AgentRole; error: string }
   | { type: "pipeline:start"; complexity: QueryComplexity; agents: AgentRole[] }
   | { type: "pipeline:complete"; durationMs: number; answer: SynthesizedAnswer }
-  | { type: "pipeline:error"; error: string };
+  | { type: "pipeline:error"; error: string }
+  | { type: "pipeline:skill_matched"; skill: string };
 
 /** Agent configuration */
 export interface AgentConfig {
@@ -39,8 +41,13 @@ export interface WorkspaceState {
   plan?: ResearchPlan;
   facts: Fact[];
   analysis?: string;
+  bullAnalysis?: string;
+  bearAnalysis?: string;
   validationIssues?: ValidationIssue[];
   answer?: SynthesizedAnswer;
+  matchedSkill?: SkillMeta;
+  priorFacts?: Fact[];
+  conversationContext?: string;
 }
 
 export interface ValidationIssue {

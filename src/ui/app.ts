@@ -11,6 +11,7 @@ import { ChatLog } from "./components/chat-log.js";
 import { AgentTrace } from "./components/agent-trace.js";
 import { ProgressBar } from "./components/progress-bar.js";
 import { WorkspacePanel } from "./components/workspace-panel.js";
+import { DataTable } from "./components/data-table.js";
 import { theme, colorize, bold, dim } from "./theme.js";
 import type { AgentEvent } from "../agents/types.js";
 import type { SynthesizedAnswer } from "../types.js";
@@ -49,6 +50,7 @@ export class App {
   private progressBar: ProgressBar;
   private workspacePanel: WorkspacePanel;
   private answerDisplay: Markdown;
+  private dataTable: DataTable;
   private statusLine: Text;
   private input: Input;
   private callbacks: AppCallbacks;
@@ -65,6 +67,7 @@ export class App {
     this.progressBar = new ProgressBar();
     this.workspacePanel = new WorkspacePanel();
     this.answerDisplay = new Markdown("", 1, 0, markdownTheme);
+    this.dataTable = new DataTable();
     this.statusLine = new Text(this.buildStatusLine());
     this.input = new Input();
 
@@ -82,6 +85,7 @@ export class App {
     this.tui.addChild(this.progressBar);
     this.tui.addChild(this.agentTrace);
     this.tui.addChild(this.answerDisplay);
+    this.tui.addChild(this.dataTable);
     this.tui.addChild(this.workspacePanel);
     this.tui.addChild(new Spacer(1));
     this.tui.addChild(this.statusLine);
@@ -154,6 +158,20 @@ export class App {
       const answer = await this.callbacks.onQuery(query);
       this.answerDisplay.setText(answer.content);
       this.chatLog.addMessage("assistant", answer.content);
+
+      // Render tables if present
+      if (answer.tables?.length) {
+        const firstTable = answer.tables[0];
+        this.dataTable.setData(
+          firstTable.columns.map((col) => ({ header: col, key: col })),
+          firstTable.rows.map((row) => {
+            const obj: Record<string, string | number> = {};
+            firstTable.columns.forEach((col, i) => { obj[col] = row[i] ?? ""; });
+            return obj;
+          }),
+          firstTable.title,
+        );
+      }
 
       if (answer.warnings?.length) {
         for (const warning of answer.warnings) {
