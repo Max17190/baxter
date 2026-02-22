@@ -1,0 +1,165 @@
+import { generateText } from "ai";
+import type { LanguageModelV1 } from "ai";
+import { randomUUIDv7 } from "bun";
+import type { Fact } from "../types.js";
+import type { ModelRouter } from "../llm/router.js";
+import type { TokenTracker } from "../llm/token-tracker.js";
+import type { ToolRegistry } from "../tools/registry.js";
+import type { Workspace } from "./context/workspace.js";
+import type { MessageBus } from "./context/message-bus.js";
+import type { AgentConfig, AgentOutput } from "./types.js";
+import { parseModelId } from "../config.js";
+
+export interface BaseAgentDeps {
+  router: ModelRouter;
+  tokenTracker: TokenTracker;
+  toolRegistry: ToolRegistry;
+  workspace: Workspace;
+  bus: MessageBus;
+}
+
+/**
+ * Base agent class with shared logic for all agents.
+ * Uses Vercel AI SDK's generateText with tool loop (maxSteps).
+ */
+export abstract class BaseAgent {
+  protected config: AgentConfig;
+  protected deps: BaseAgentDeps;
+
+  constructor(config: AgentConfig, deps: BaseAgentDeps) {
+    this.config = config;
+    this.deps = deps;
+  }
+
+  protected get model(): LanguageModelV1 {
+    return this.deps.router.getModel(this.config.modelTier);
+  }
+
+  protected get modelName(): string {
+    return this.config.modelTier === "fast"
+      ? this.deps.router.fastModelName
+      : this.deps.router.primaryModelName;
+  }
+
+  async run(): Promise<AgentOutput> {
+    const start = performance.now();
+    const { role } = this.config;
+
+    this.deps.bus.emit({
+      type: "agent:start",
+      agent: role,
+      query: this.deps.workspace.query,
+    });
+
+    try {
+      const context = this.deps.workspace.buildContextFor(role);
+      const tools = this.config.tools
+        ? this.deps.toolRegistry.toAISDKTools(this.config.tools)
+        : {};
+
+      const result = await generateText({
+        model: this.model,
+        system: this.config.systemPrompt,
+        prompt: context,
+        tools,
+        maxSteps: this.config.maxSteps ?? 5,
+        onStepFinish: ({ text, toolCalls, toolResults }) => {
+          if (text) {
+            this.deps.bus.emit({ type: "agent:thinking", agent: role, content: text });
+          }
+          if (toolCalls) {
+            for (const call of toolCalls) {
+              this.deps.bus.emit({
+                type: "agent:tool_call",
+                agent: role,
+                tool: call.toolName,
+                params: call.args,
+              });
+            }
+          }
+          if (toolResults) {
+            for (const res of toolResults) {
+              this.deps.bus.emit({
+                type: "agent:tool_result",
+                agent: role,
+                tool: res.toolName,
+                success: res.result !== undefined,
+                durationMs: 0,
+              });
+            }
+          }
+        },
+      });
+
+      // Track token usage
+      if (result.usage) {
+        const { provider, model } = parseModelId(this.modelName);
+        this.deps.tokenTracker.record(
+          provider,
+          model,
+          result.usage.promptTokens,
+          result.usage.completionTokens,
+        );
+      }
+
+      const durationMs = Math.round(performance.now() - start);
+      const output = await this.processResult(result.text, result);
+
+      this.deps.bus.emit({ type: "agent:complete", agent: role, durationMs });
+
+      return {
+        role,
+        facts: output.facts ?? [],
+        rawOutput: result.text,
+        plan: output.plan,
+        answer: output.answer,
+        durationMs,
+      };
+    } catch (error) {
+      const durationMs = Math.round(performance.now() - start);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.deps.bus.emit({ type: "agent:error", agent: role, error: errorMsg });
+      return {
+        role,
+        facts: [],
+        rawOutput: "",
+        durationMs,
+      };
+    }
+  }
+
+  /** Create a fact with proper provenance */
+  protected createFact(
+    content: string,
+    options: {
+      tool?: string;
+      confidence?: number;
+      tags?: string[];
+      sourceUrl?: string;
+      sourceDescription?: string;
+    } = {},
+  ): Fact {
+    const fact: Fact = {
+      id: randomUUIDv7(),
+      content,
+      provenance: {
+        agent: this.config.role,
+        tool: options.tool,
+        timestamp: Date.now(),
+        sourceUrl: options.sourceUrl,
+        sourceDescription: options.sourceDescription,
+      },
+      confidence: options.confidence ?? 0.8,
+      tags: options.tags ?? [],
+    };
+
+    this.deps.bus.emit({ type: "agent:fact", agent: this.config.role, fact });
+    return fact;
+  }
+
+  /** Subclasses implement this to process the LLM output */
+  protected abstract processResult(
+    text: string,
+    fullResult: unknown,
+  ): Promise<Partial<AgentOutput>>;
+}

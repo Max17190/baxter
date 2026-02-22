@@ -1,0 +1,47 @@
+{
+  "name": "baxter",
+  "version": "0.1.0",
+  "description": "The best autonomous financial research agent",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "baxter": "src/index.ts"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch src/index.ts",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/",
+    "format": "biome format --write src/",
+    "test": "bun test",
+    "eval": "bun run evals/run.ts",
+    "db:push": "bun run drizzle-kit push",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^1.2.0",
+    "@ai-sdk/google": "^1.2.0",
+    "@ai-sdk/openai": "^1.3.0",
+    "@ai-sdk/xai": "^1.2.0",
+    "@mariozechner/pi-tui": "^0.54.1",
+    "@mendable/firecrawl-js": "^1.15.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/sdk-node": "^0.57.0",
+    "@opentelemetry/sdk-trace-base": "^1.30.0",
+    "ai": "^4.3.0",
+    "better-sqlite3": "^11.8.0",
+    "drizzle-orm": "^0.38.0",
+    "lru-cache": "^11.0.0",
+    "p-limit": "^6.2.0",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.1.3",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/bun": "^1.2.0",
+    "drizzle-kit": "^0.30.0",
+    "typescript": "^5.7.0"
+  }
+}
