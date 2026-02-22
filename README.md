@@ -1,54 +1,35 @@
 # Baxter
 
-**The best autonomous financial research agent.**
-
-Baxter is a multi-agent system that answers complex financial questions by orchestrating specialized AI agents, financial data APIs, and web research tools.
-
-## Architecture
+Autonomous financial research agent with a true multi-agent architecture. Ask any financial question and get a researched, sourced answer.
 
 ```
-User Query
-    |
-[Orchestrator] -> classifies query complexity (fast model)
-    |
-    +- simple  -> Researcher -> Synthesizer
-    +- medium  -> Planner -> Researcher -> Analyst -> Synthesizer
-    +- complex -> Planner -> Researcher -> Analyst -> Validator -> Synthesizer
+$ bun start
+> Is NVDA overvalued? Do a DCF analysis.
+
+Baxter classifies your query, builds a research plan, gathers data from
+SEC EDGAR and financial APIs, runs bull/bear analysis in parallel,
+validates the data, and synthesizes a comprehensive answer with tables
+and citations.
 ```
 
-### Agents
+## Why Baxter?
 
-| Agent | Role | Model |
-|-------|------|-------|
-| **Orchestrator** | Classify query complexity, route pipeline | Fast |
-| **Planner** | Decompose into research tasks with dependencies | Primary |
-| **Researcher** | Execute tools to gather data (parallel) | Fast |
-| **Analyst** | Financial calculations, skill invocation | Primary |
-| **Validator** | Cross-check facts, flag inconsistencies | Fast |
-| **Synthesizer** | Generate final answer with citations | Primary |
+Most "multi-agent" financial tools are single ReAct loops pretending to be multiple agents. Baxter is different:
 
-### Key Features
-
-- **Real multi-agent architecture** — 6 specialized agents with dynamic routing
-- **20+ tools** — 11 financial data tools, 5 web research tools, 4 local computation tools
-- **7 built-in skills** — DCF valuation, comparable analysis, earnings analysis, risk assessment, sector analysis, SEC filing analysis, portfolio review
-- **Parallel tool execution** — independent tools fire simultaneously with concurrency control
-- **Dual model routing** — fast model for classification/validation, primary for reasoning/synthesis
-- **Structured workspace** — typed shared state with fact provenance and confidence tracking
-- **SQLite persistence** — cross-session memory for facts and query history
-- **Cost tracking** — per-query cost breakdown by model
+- **6 specialized agents** with distinct roles: Orchestrator, Planner, Researcher, Analyst, Validator, Synthesizer
+- **Dynamic routing** -- simple lookups skip the planner; complex queries get the full pipeline with bull/bear debate
+- **Task graph execution** -- the planner creates a dependency graph, and researchers execute tasks in parallel waves
+- **Works with zero paid data keys** -- SEC EDGAR provides free financial data for all public US companies
+- **Only 6 tools visible to the LLM** -- an agentic router dispatches to 14+ sub-tools internally, keeping the model focused
 
 ## Quick Start
 
 ```bash
-# Clone and install
-git clone https://github.com/your-org/baxter.git
-cd baxter
+# Install
 bun install
 
-# Configure (at least one LLM provider required)
-cp env.example .env
-# Edit .env with your API keys
+# Set at least one LLM API key
+export ANTHROPIC_API_KEY=sk-ant-...
 
 # Run
 bun start
@@ -57,30 +38,104 @@ bun start
 bun start "What is AAPL's PE ratio?"
 ```
 
-## Configuration
-
-Copy `env.example` to `.env` and set your API keys:
+That's it. Baxter works immediately with free SEC EDGAR data. For richer data, add optional API keys:
 
 ```bash
-# Required: At least one LLM provider
-ANTHROPIC_API_KEY=sk-ant-...     # Recommended
-OPENAI_API_KEY=sk-...            # Alternative
+# Optional: broader financial data (prices, insider trades, analyst estimates)
+export FINANCIAL_DATASETS_API_KEY=...
 
-# Optional: Financial data
-FINANCIAL_DATASETS_API_KEY=...   # For financial statements, prices, etc.
-
-# Optional: Web research
-FIRECRAWL_API_KEY=fc-...         # For web search and scraping
-
-# Model selection (defaults shown)
-PRIMARY_MODEL=anthropic:claude-sonnet-4-20250514
-FAST_MODEL=anthropic:claude-haiku-4-5-20251001
+# Optional: web research (news, earnings calls, qualitative data)
+export FIRECRAWL_API_KEY=...
 ```
 
-### Supported LLM Providers
+## Architecture
 
-| Provider | Env Variable | Models |
-|----------|-------------|--------|
+```
+Query
+  |
+  v
+Orchestrator (fast model classifies complexity + matches skills)
+  |
+  +--[simple]--> Researcher --> Synthesizer --> Answer
+  |
+  +--[medium]--> Planner --> Researcher (task graph) --> Analyst --> Synthesizer --> Answer
+  |
+  +--[complex]--> Planner --> Researcher (parallel waves) --> Analyst (bull + bear) --> Validator --> Synthesizer --> Answer
+```
+
+### Agents
+
+| Agent | Role | Model |
+|-------|------|-------|
+| **Orchestrator** | Classify query complexity, match skills, route pipeline | Fast |
+| **Planner** | Decompose into research tasks with dependency graph | Primary |
+| **Researcher** | Execute tools to gather data (parallel waves) | Fast |
+| **Analyst** | Financial analysis; bull/bear debate on complex queries | Primary |
+| **Validator** | Cross-check facts, flag inconsistencies | Fast |
+| **Synthesizer** | Generate final answer with citations and tables | Primary |
+
+## Tools
+
+The LLM sees only **6 tools**, keeping decisions focused and context efficient:
+
+| Tool | Description | API Key? |
+|------|-------------|----------|
+| `financial_data` | Get any financial data. Agentic router dispatches to 14 sub-tools internally (income statements, balance sheets, cash flows, prices, metrics, SEC filings, insider trades, institutional holdings, analyst estimates, segment data, and 3 EDGAR endpoints). | No (EDGAR free) |
+| `web_research` | Search the web or scrape a URL. Pass a query for search results with content, or a URL for markdown extraction. | Optional |
+| `calculate_financial_ratios` | Compute PE, PB, ROE, ROA, margins, liquidity, and leverage ratios from raw data. | No |
+| `calculate_growth_rates` | Compute CAGR, YoY growth, and sequential growth rates. | No |
+| `calculate_statistics` | Compute mean, median, standard deviation, and percentiles. | No |
+| `calculate_dcf` | Run a full DCF valuation with terminal value and sensitivity analysis. | No |
+
+The `financial_data` tool uses a fast-model LLM call to route natural language like "AAPL income statements last 3 years" to the correct sub-tool. When no `FINANCIAL_DATASETS_API_KEY` is set, it falls back to free SEC EDGAR data automatically.
+
+## Skills
+
+7 built-in research skills activate automatically based on your query:
+
+| Skill | Triggers |
+|-------|----------|
+| **DCF Valuation** | "dcf", "discounted cash flow", "intrinsic value", "fair value" |
+| **Earnings Analysis** | "earnings", "quarterly results", "eps" |
+| **Comparable Analysis** | "comparable", "comps", "peer comparison" |
+| **Portfolio Review** | "portfolio", "holdings", "diversification" |
+| **Risk Assessment** | "risk", "risk factors", "downside" |
+| **SEC Filing Analysis** | "10-K", "10-Q", "SEC filing" |
+| **Sector Analysis** | "sector", "industry analysis" |
+
+Skills inject specialized prompts into the researcher and analyst agents, guiding tool usage and analytical frameworks.
+
+## Features
+
+- **Multi-turn conversations** -- follow-up queries resolved automatically ("What about their margins?" becomes "What are AAPL's margins?")
+- **Cross-session memory** -- facts persist in SQLite across sessions; prior knowledge seeded into new queries
+- **Structured table output** -- financial comparisons render as formatted tables in the TUI
+- **Bull/bear debate** -- complex queries run dual analysts in parallel with opposing perspectives
+- **Cost tracking** -- per-query and session-level cost breakdowns via `/cost`
+- **Circuit breakers** -- external APIs fail fast after repeated errors
+- **Tool result caching** -- LRU cache for cacheable tools (successful results only)
+- **OpenTelemetry tracing** -- full pipeline observability when configured
+- **Structured logging** -- Pino logging at all decision points
+
+## TUI Commands
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show available commands |
+| `/cost` | Show session cost summary |
+| `/history` | Show recent queries |
+| `/skills` | List available research skills |
+| `/debug` | Toggle workspace debug panel (or Ctrl+D) |
+| `/clear` | Clear the conversation |
+
+## Configuration
+
+### LLM Providers
+
+Set at least one API key. Baxter supports 7 providers:
+
+| Provider | Environment Variable | Example Models |
+|----------|---------------------|----------------|
 | Anthropic | `ANTHROPIC_API_KEY` | Claude Sonnet, Haiku, Opus |
 | OpenAI | `OPENAI_API_KEY` | GPT-4o, GPT-4.1, o3-mini |
 | Google | `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini 2.5 Flash/Pro |
@@ -89,72 +144,33 @@ FAST_MODEL=anthropic:claude-haiku-4-5-20251001
 | OpenRouter | `OPENROUTER_API_KEY` | Any model via OpenRouter |
 | Ollama | `OLLAMA_BASE_URL` | Local models |
 
-## Tools
+### Model Selection
 
-### Financial Data (via Financial Datasets API)
-- `get_income_statements` — Revenue, net income, EPS
-- `get_balance_sheets` — Assets, liabilities, equity
-- `get_cash_flows` — Operating, investing, financing cash flows
-- `get_prices` — Historical stock prices
-- `get_key_metrics` — PE ratio, ROE, margins, etc.
-- `get_sec_filings` — SEC filing metadata
-- `get_insider_trades` — Insider buying/selling
-- `get_institutional_holdings` — Institutional ownership
-- `get_analyst_estimates` — Consensus estimates
-- `get_segmented_financials` — Segment breakdowns
-- `search_financial_data` — Full-text search
+```bash
+PRIMARY_MODEL=anthropic:claude-sonnet-4-20250514   # Reasoning, analysis, synthesis
+FAST_MODEL=anthropic:claude-haiku-4-5-20251001     # Classification, routing, validation
+```
 
-### Web Research (via Firecrawl)
-- `firecrawl_search` — Web search with content extraction
-- `firecrawl_scrape` — Single URL content extraction
-- `firecrawl_crawl` — Multi-page crawling
-- `firecrawl_extract` — Structured data extraction
-- `firecrawl_agent` — Autonomous multi-step research
+### Optional Settings
 
-### Local Computation
-- `calculate_financial_ratios` — PE, PB, ROE, ROA, margins, etc.
-- `calculate_growth_rates` — CAGR, YoY, sequential growth
-- `calculate_statistics` — Mean, median, stddev, percentiles
-- `calculate_dcf` — Discounted cash flow valuation
-
-## Skills
-
-Skills are specialized analysis workflows triggered by query keywords:
-
-| Skill | Triggers |
-|-------|----------|
-| **DCF Valuation** | "dcf", "fair value", "overvalued", "undervalued" |
-| **Comparable Analysis** | "comparable", "comps", "compare", "vs" |
-| **Earnings Analysis** | "earnings", "quarterly results", "eps" |
-| **Risk Assessment** | "risk", "downside", "red flags" |
-| **Sector Analysis** | "sector", "industry trends" |
-| **SEC Filing Analysis** | "10-k", "10-q", "sec filing" |
-| **Portfolio Review** | "portfolio", "holdings", "diversification" |
-
-## CLI Commands
-
-| Command | Description |
-|---------|-------------|
-| `/help` | Show available commands |
-| `/skills` | List built-in skills |
-| `/history` | Show recent queries |
-| `Ctrl+D` | Toggle workspace debug panel |
-| `Ctrl+C` | Exit |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FINANCIAL_DATASETS_API_KEY` | -- | Unlock prices, insider trades, analyst estimates |
+| `FIRECRAWL_API_KEY` | -- | Enable web research |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | -- | OpenTelemetry trace export URL |
+| `LOG_LEVEL` | `info` | Log level (`trace` / `debug` / `info` / `warn` / `error`) |
+| `CACHE_TTL_SECONDS` | `3600` | Tool result cache TTL |
+| `MAX_TOOL_CONCURRENCY` | `5` | Max parallel tool executions |
 
 ## Development
 
 ```bash
-# Type check
-bun typecheck
-
-# Run tests
-bun test
-
-# Lint
-bun lint
-
-# Format
-bun format
+bun dev              # Run with --watch
+bun test             # Run 117 tests
+bun run eval         # Run evaluation suite (20 financial Q&A pairs)
+bun run lint         # Check with Biome
+bun run lint:fix     # Auto-fix lint issues
+bun run typecheck    # TypeScript type checking
 ```
 
 ## Tech Stack
@@ -162,13 +178,13 @@ bun format
 - **Runtime:** Bun
 - **Language:** TypeScript
 - **LLM:** Vercel AI SDK (`ai` + provider packages)
-- **Web Research:** Firecrawl
-- **Financial Data:** Financial Datasets API
-- **Schema Validation:** Zod
+- **Financial Data:** SEC EDGAR (free) + Financial Datasets API (optional)
+- **Web Research:** Firecrawl (optional)
+- **Validation:** Zod
 - **Database:** SQLite (better-sqlite3)
-- **CLI UI:** pi-tui
+- **TUI:** pi-tui
+- **Observability:** Pino + OpenTelemetry
 - **Linting:** Biome
-- **Observability:** OpenTelemetry
 
 ## License
 
