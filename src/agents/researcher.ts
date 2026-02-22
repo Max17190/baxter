@@ -41,7 +41,8 @@ export class ResearcherAgent extends BaseAgent {
 
   protected async processResult(text: string): Promise<Partial<AgentOutput>> {
     const facts = await extractFactsWithLLM(text, this.deps.router.fast, "researcher", ["research"]);
-    this.deps.workspace.addFacts(facts);
+    // Don't write to workspace here — the orchestrator handles workspace writes
+    // from the returned output. This prevents double-writes and race conditions.
     return { facts };
   }
 }

@@ -66,9 +66,8 @@ export class AnalystAgent extends BaseAgent {
     if (this.perspective !== "neutral") tags.push(this.perspective);
 
     const facts = await extractFactsWithLLM(text, this.deps.router.fast, "analyst", tags);
-    this.deps.workspace.addFacts(facts);
-    this.deps.workspace.setAnalysis(text);
-
+    // Don't write to workspace here — the orchestrator handles workspace writes
+    // from the returned output. This prevents race conditions in bull/bear parallel execution.
     return { facts };
   }
 }

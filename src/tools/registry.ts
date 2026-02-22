@@ -57,7 +57,9 @@ export class ToolRegistry {
             const cached = this.cache.get(cacheKey);
             if (cached) return cached.result.data;
             const toolResult = await tool.execute(params);
-            this.cache.set(cacheKey, { result: toolResult });
+            if (toolResult.success) {
+              this.cache.set(cacheKey, { result: toolResult });
+            }
             return toolResult.data;
           }
           const toolResult = await tool.execute(params);

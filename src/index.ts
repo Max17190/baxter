@@ -13,10 +13,9 @@ import { SkillRegistry } from "./skills/registry.js";
 import { loadBuiltinSkills } from "./skills/loader.js";
 import { Conversation } from "./agents/context/conversation.js";
 import { App } from "./ui/app.js";
-import { registerFinanceTools } from "./tools/finance/register.js";
-import { registerFirecrawlTools } from "./tools/firecrawl/register.js";
 import { registerCalculationTools } from "./tools/calculation/register.js";
-import { registerEdgarTools } from "./tools/edgar/register.js";
+import { createFinancialDataTool } from "./tools/financial-data.js";
+import { createWebResearchTool } from "./tools/web-research.js";
 import type { SynthesizedAnswer } from "./types.js";
 import { createChildLogger } from "./utils/logger.js";
 import { mkdirSync } from "node:fs";
@@ -59,11 +58,26 @@ async function main() {
   const costTracker = new CostTracker(tokenTracker);
   const memory = new Memory();
 
-  // Register tools
-  registerFinanceTools(config);
-  registerFirecrawlTools(config);
+  // Register tools — consolidated for minimal LLM decision complexity
+  // 1. financial_data: agentic router over 11 finance + 3 EDGAR sub-tools (always available via free EDGAR)
+  toolRegistry.register(createFinancialDataTool({
+    financialDatasetsApiKey: config.financialDatasetsApiKey,
+    fastModel: router.fast,
+  }));
+
+  // 2. web_research: unified search + scrape (only if Firecrawl key available)
+  if (config.firecrawlApiKey) {
+    toolRegistry.register(createWebResearchTool());
+  } else {
+    log.warn("No FIRECRAWL_API_KEY set — web research tool not available. Set it for news, earnings calls, and qualitative research.");
+  }
+
+  // 3. Calculation tools: always available (local, no API needed)
   registerCalculationTools();
-  registerEdgarTools(); // Always available — no API key needed
+
+  if (!config.financialDatasetsApiKey) {
+    log.warn("No FINANCIAL_DATASETS_API_KEY set — using free SEC EDGAR data only. Set it for broader coverage (prices, insider trades, analyst estimates, etc.).");
+  }
 
   // Initialize conversation context
   const conversation = new Conversation();

@@ -10,10 +10,9 @@ import { Orchestrator } from "../src/agents/orchestrator.js";
 import { CostTracker } from "../src/observability/cost-tracker.js";
 import { SkillRegistry } from "../src/skills/registry.js";
 import { loadBuiltinSkills } from "../src/skills/loader.js";
-import { registerFinanceTools } from "../src/tools/finance/register.js";
-import { registerFirecrawlTools } from "../src/tools/firecrawl/register.js";
 import { registerCalculationTools } from "../src/tools/calculation/register.js";
-import { registerEdgarTools } from "../src/tools/edgar/register.js";
+import { createFinancialDataTool } from "../src/tools/financial-data.js";
+import { createWebResearchTool } from "../src/tools/web-research.js";
 import { evaluateAnswer, type EvalResult } from "./evaluator.js";
 import dataset from "./dataset.json";
 
@@ -23,11 +22,15 @@ async function main() {
   const tokenTracker = new TokenTracker();
   const costTracker = new CostTracker(tokenTracker);
 
-  // Register tools
-  registerFinanceTools(config);
-  registerFirecrawlTools(config);
+  // Register tools — consolidated
+  toolRegistry.register(createFinancialDataTool({
+    financialDatasetsApiKey: config.financialDatasetsApiKey,
+    fastModel: router.fast,
+  }));
+  if (config.firecrawlApiKey) {
+    toolRegistry.register(createWebResearchTool());
+  }
   registerCalculationTools();
-  registerEdgarTools();
 
   // Load skills
   const skillRegistry = new SkillRegistry();

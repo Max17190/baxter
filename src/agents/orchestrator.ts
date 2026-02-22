@@ -122,24 +122,32 @@ export class Orchestrator {
     const tasks = plan.tasks;
     const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
+    // Detect circular dependencies before starting
+    const hasCycle = this.detectCycle(tasks);
+    if (hasCycle) {
+      log.warn("Circular dependency detected in research plan — executing tasks sequentially without dependency checks");
+      // Strip all dependencies to allow sequential execution
+      for (const task of tasks) task.dependencies = [];
+    }
+
     // Process waves until all tasks are completed or failed
     let maxWaves = 10;
     while (maxWaves-- > 0) {
-      // Find tasks ready to run: pending + all dependencies completed
+      // Find tasks ready to run: pending + all dependencies completed or failed
       const ready = tasks.filter(
         (t) =>
           t.status === "pending" &&
           t.dependencies.every((depId) => {
             const dep = taskMap.get(depId);
-            return dep?.status === "completed";
+            // Allow tasks to proceed if dependency completed OR failed (with warning)
+            return !dep || dep.status === "completed" || dep.status === "failed";
           }),
       );
 
-      if (ready.length === 0) break; // No more tasks can run
+      if (ready.length === 0) break;
 
       log.info({ wave: 10 - maxWaves, tasks: ready.map((t) => t.id) }, "Research wave starting");
 
-      // Run all ready tasks in parallel
       const results = await Promise.allSettled(
         ready.map(async (task) => {
           task.status = "in_progress";
@@ -156,7 +164,6 @@ export class Orchestrator {
         }),
       );
 
-      // Mark failed tasks
       for (let i = 0; i < results.length; i++) {
         if (results[i].status === "rejected") {
           ready[i].status = "failed";
@@ -164,9 +171,38 @@ export class Orchestrator {
         }
       }
 
-      // Check if all tasks are done
       if (tasks.every((t) => t.status === "completed" || t.status === "failed")) break;
     }
+
+    // Log any tasks that never ran
+    const stuck = tasks.filter((t) => t.status === "pending");
+    if (stuck.length > 0) {
+      log.warn({ stuckTasks: stuck.map((t) => t.id) }, "Research tasks could not be executed");
+    }
+  }
+
+  /** Simple cycle detection using DFS */
+  private detectCycle(tasks: ResearchTask[]): boolean {
+    const visited = new Set<string>();
+    const inStack = new Set<string>();
+    const taskMap = new Map(tasks.map((t) => [t.id, t]));
+
+    const dfs = (id: string): boolean => {
+      if (inStack.has(id)) return true;
+      if (visited.has(id)) return false;
+      visited.add(id);
+      inStack.add(id);
+      const task = taskMap.get(id);
+      if (task) {
+        for (const dep of task.dependencies) {
+          if (dfs(dep)) return true;
+        }
+      }
+      inStack.delete(id);
+      return false;
+    };
+
+    return tasks.some((t) => dfs(t.id));
   }
 
   /**

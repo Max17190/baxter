@@ -4,6 +4,10 @@ import { BaseAgent, type BaseAgentDeps } from "./base-agent.js";
 import type { AgentOutput } from "./types.js";
 import type { ResearchPlan } from "../types.js";
 import { parseModelId } from "../config.js";
+import { startAgentSpan, endSpan, endSpanWithError } from "../observability/tracer.js";
+import { createChildLogger } from "../utils/logger.js";
+
+const log = createChildLogger("agent");
 
 const researchPlanSchema = z.object({
   objective: z.string().describe("Clear statement of the research objective"),
@@ -27,10 +31,13 @@ Guidelines:
 - Tasks that can run in parallel should have no dependencies on each other
 - Be specific about what data to gather (e.g., "Get AAPL income statements for last 5 years" not just "Get financial data")
 
-Available tool categories:
-- Finance tools: get_income_statements, get_balance_sheets, get_cash_flows, get_prices, get_key_metrics, get_sec_filings, get_insider_trades, get_institutional_holdings, get_analyst_estimates, get_segmented_financials, search_financial_data
-- Web tools: firecrawl_search, firecrawl_scrape, firecrawl_extract, firecrawl_agent
-- Calculation tools: calculate_financial_ratios, calculate_growth_rates, calculate_statistics, calculate_dcf
+Available tools:
+- financial_data: Get any financial data (income statements, balance sheets, cash flows, prices, metrics, SEC filings, insider trades, analyst estimates, segment data). Just describe what data you need.
+- web_research: Search the web or scrape a URL for news, earnings calls, analyst opinions
+- calculate_financial_ratios: Compute PE, PB, ROE, ROA, margins, liquidity, leverage ratios
+- calculate_growth_rates: Compute CAGR, YoY growth, sequential growth
+- calculate_statistics: Compute mean, median, standard deviation, percentiles
+- calculate_dcf: Run discounted cash flow valuation
 
 Structure the plan so independent data gathering happens first, then analysis tasks that depend on gathered data.`;
 
@@ -47,36 +54,58 @@ export class PlannerAgent extends BaseAgent {
     );
   }
 
-  protected async processResult(): Promise<Partial<AgentOutput>> {
-    const context = this.deps.workspace.buildContextFor("planner");
+  /** Override run() to go straight to generateObject — avoids wasteful generateText call */
+  async run(): Promise<AgentOutput> {
+    const start = performance.now();
+    const role = this.config.role;
+    const span = startAgentSpan(role, this.deps.workspace.query);
 
-    const result = await generateObject({
-      model: this.model,
-      schema: researchPlanSchema,
-      system: SYSTEM_PROMPT,
-      prompt: context,
-    });
+    log.info({ role, model: this.modelName }, "Agent starting");
+    this.deps.bus.emit({ type: "agent:start", agent: role, query: this.deps.workspace.query });
 
-    if (result.usage) {
-      const { provider, model } = parseModelId(this.modelName);
-      this.deps.tokenTracker.record(
-        provider,
-        model,
-        result.usage.promptTokens,
-        result.usage.completionTokens,
-      );
+    try {
+      const context = this.deps.workspace.buildContextFor("planner");
+
+      const result = await generateObject({
+        model: this.model,
+        schema: researchPlanSchema,
+        system: SYSTEM_PROMPT,
+        prompt: context,
+      });
+
+      if (result.usage) {
+        const { provider, model } = parseModelId(this.modelName);
+        this.deps.tokenTracker.record(provider, model, result.usage.promptTokens, result.usage.completionTokens);
+      }
+
+      const plan: ResearchPlan = {
+        objective: result.object.objective,
+        tasks: result.object.tasks.map((t) => ({
+          ...t,
+          status: "pending" as const,
+        })),
+        estimatedComplexity: result.object.estimatedComplexity,
+      };
+
+      this.deps.workspace.setPlan(plan);
+
+      const durationMs = Math.round(performance.now() - start);
+      log.info({ role, durationMs, tasks: plan.tasks.length }, "Agent completed");
+      endSpan(span, { "agent.duration_ms": durationMs });
+      this.deps.bus.emit({ type: "agent:complete", agent: role, durationMs });
+
+      return { role, facts: [], rawOutput: plan.objective, plan, durationMs };
+    } catch (error) {
+      const durationMs = Math.round(performance.now() - start);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error({ role, durationMs, error: errorMsg }, "Agent failed");
+      endSpanWithError(span, error instanceof Error ? error : new Error(errorMsg));
+      this.deps.bus.emit({ type: "agent:error", agent: role, error: errorMsg });
+      return { role, facts: [], rawOutput: "", durationMs };
     }
+  }
 
-    const plan: ResearchPlan = {
-      objective: result.object.objective,
-      tasks: result.object.tasks.map((t) => ({
-        ...t,
-        status: "pending" as const,
-      })),
-      estimatedComplexity: result.object.estimatedComplexity,
-    };
-
-    this.deps.workspace.setPlan(plan);
-    return { plan };
+  protected async processResult(): Promise<Partial<AgentOutput>> {
+    return {};
   }
 }

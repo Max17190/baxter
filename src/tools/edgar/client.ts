@@ -43,28 +43,45 @@ export class EdgarClient {
     });
   }
 
-  /** Look up company CIK by ticker using the company tickers JSON */
+  /** Look up company CIK by ticker using SEC's company tickers JSON */
   async lookupCIK(ticker: string): Promise<string | null> {
     return edgarBreaker.execute(async () => {
-      const url = `${DATA_BASE}/submissions/CIK${ticker.toUpperCase().padStart(10, "0")}.json`;
-      log.debug({ ticker, url }, "EDGAR CIK lookup");
+      const upperTicker = ticker.toUpperCase();
+      log.debug({ ticker: upperTicker }, "EDGAR CIK lookup");
 
-      // Try ticker-based lookup via company search
-      const searchUrl = `${EDGAR_BASE}/search-index?q="${ticker}"&dateRange=custom&startdt=2024-01-01&forms=10-K`;
-      const searchResp = await fetch(searchUrl, {
+      // Use SEC's official company tickers endpoint
+      const url = `${DATA_BASE}/company_tickers.json`;
+      const response = await fetch(url, {
         headers: { "User-Agent": this.userAgent, Accept: "application/json" },
       });
 
-      if (searchResp.ok) {
-        const data = (await searchResp.json()) as { hits?: { hits?: Array<{ _source?: { entity_name?: string; file_num?: string } }> } };
-        if (data.hits?.hits?.[0]) {
-          // Extract CIK from file number
-          return data.hits.hits[0]._source?.file_num ?? null;
+      if (!response.ok) {
+        throw new Error(`EDGAR company tickers error: ${response.status}`);
+      }
+
+      const data = (await response.json()) as Record<string, { cik_str: number; ticker: string; title: string }>;
+
+      // Search for matching ticker
+      for (const entry of Object.values(data)) {
+        if (entry.ticker === upperTicker) {
+          return String(entry.cik_str);
         }
       }
 
       return null;
     });
+  }
+
+  /** Cached CIK map for fast repeated lookups */
+  private cikCache = new Map<string, string>();
+
+  /** Look up CIK with caching */
+  async resolveCIK(ticker: string): Promise<string | null> {
+    const upper = ticker.toUpperCase();
+    if (this.cikCache.has(upper)) return this.cikCache.get(upper)!;
+    const cik = await this.lookupCIK(upper);
+    if (cik) this.cikCache.set(upper, cik);
+    return cik;
   }
 
   /** Get company submissions (filings list) by CIK */

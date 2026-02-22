@@ -4,6 +4,10 @@ import { BaseAgent, type BaseAgentDeps } from "./base-agent.js";
 import type { AgentOutput } from "./types.js";
 import type { SynthesizedAnswer, Citation, AnswerTable } from "../types.js";
 import { parseModelId } from "../config.js";
+import { startAgentSpan, endSpan, endSpanWithError } from "../observability/tracer.js";
+import { createChildLogger } from "../utils/logger.js";
+
+const log = createChildLogger("agent");
 
 const answerSchema = z.object({
   content: z.string().describe("The complete answer in markdown format"),
@@ -57,48 +61,70 @@ export class SynthesizerAgent extends BaseAgent {
     );
   }
 
-  protected async processResult(): Promise<Partial<AgentOutput>> {
-    // Use generateObject to get structured output
-    const context = this.deps.workspace.buildContextFor("synthesizer");
+  /** Override run() to go straight to generateObject — avoids wasteful generateText call */
+  async run(): Promise<AgentOutput> {
+    const start = performance.now();
+    const role = this.config.role;
+    const span = startAgentSpan(role, this.deps.workspace.query);
 
-    const result = await generateObject({
-      model: this.model,
-      schema: answerSchema,
-      system: SYSTEM_PROMPT,
-      prompt: context,
-    });
+    log.info({ role, model: this.modelName }, "Agent starting");
+    this.deps.bus.emit({ type: "agent:start", agent: role, query: this.deps.workspace.query });
 
-    if (result.usage) {
-      const { provider, model } = parseModelId(this.modelName);
-      this.deps.tokenTracker.record(
-        provider,
-        model,
-        result.usage.promptTokens,
-        result.usage.completionTokens,
-      );
+    try {
+      const context = this.deps.workspace.buildContextFor("synthesizer");
+
+      const result = await generateObject({
+        model: this.model,
+        schema: answerSchema,
+        system: SYSTEM_PROMPT,
+        prompt: context,
+      });
+
+      if (result.usage) {
+        const { provider, model } = parseModelId(this.modelName);
+        this.deps.tokenTracker.record(provider, model, result.usage.promptTokens, result.usage.completionTokens);
+      }
+
+      const citations: Citation[] = result.object.citations.map((c) => ({
+        ...c,
+        accessedAt: Date.now(),
+      }));
+
+      const tables: AnswerTable[] | undefined = result.object.tables?.map((t) => ({
+        title: t.title,
+        columns: t.columns,
+        rows: t.rows,
+      }));
+
+      const answer: SynthesizedAnswer = {
+        content: result.object.content,
+        citations,
+        confidence: result.object.confidence,
+        factsUsed: this.deps.workspace.facts.map((f) => f.id),
+        warnings: result.object.warnings,
+        tables,
+      };
+
+      this.deps.workspace.setAnswer(answer);
+
+      const durationMs = Math.round(performance.now() - start);
+      log.info({ role, durationMs }, "Agent completed");
+      endSpan(span, { "agent.duration_ms": durationMs });
+      this.deps.bus.emit({ type: "agent:complete", agent: role, durationMs });
+
+      return { role, facts: [], rawOutput: result.object.content, answer, durationMs };
+    } catch (error) {
+      const durationMs = Math.round(performance.now() - start);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error({ role, durationMs, error: errorMsg }, "Agent failed");
+      endSpanWithError(span, error instanceof Error ? error : new Error(errorMsg));
+      this.deps.bus.emit({ type: "agent:error", agent: role, error: errorMsg });
+      return { role, facts: [], rawOutput: "", durationMs };
     }
+  }
 
-    const citations: Citation[] = result.object.citations.map((c) => ({
-      ...c,
-      accessedAt: Date.now(),
-    }));
-
-    const tables: AnswerTable[] | undefined = result.object.tables?.map((t) => ({
-      title: t.title,
-      columns: t.columns,
-      rows: t.rows,
-    }));
-
-    const answer: SynthesizedAnswer = {
-      content: result.object.content,
-      citations,
-      confidence: result.object.confidence,
-      factsUsed: this.deps.workspace.facts.map((f) => f.id),
-      warnings: result.object.warnings,
-      tables,
-    };
-
-    this.deps.workspace.setAnswer(answer);
-    return { answer };
+  // Required by BaseAgent but never called since we override run()
+  protected async processResult(): Promise<Partial<AgentOutput>> {
+    return {};
   }
 }
