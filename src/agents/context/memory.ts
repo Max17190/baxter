@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import type { Fact } from "../../types.js";
 
@@ -39,12 +39,12 @@ CREATE INDEX IF NOT EXISTS idx_queries_created ON queries(created_at);
 
 /** SQLite-backed cross-session memory for facts and queries */
 export class Memory {
-  private db: Database.Database;
+  private db: Database;
 
   constructor(dbPath?: string) {
     const path = dbPath ?? join(process.cwd(), ".baxter", "memory.db");
     this.db = new Database(path);
-    this.db.pragma("journal_mode = WAL");
+    this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec(SCHEMA);
   }
 
@@ -58,7 +58,7 @@ export class Memory {
     const now = Date.now();
     const expiresAt = ttlMs ? now + ttlMs : null;
 
-    const insertMany = this.db.transaction((facts: Fact[]) => {
+    const insertMany = this.db.transaction(() => {
       for (const fact of facts) {
         insert.run(
           fact.id,
@@ -78,7 +78,7 @@ export class Memory {
       }
     });
 
-    insertMany(facts);
+    insertMany();
   }
 
   /** Retrieve relevant facts for a query */
