@@ -7,7 +7,7 @@ import { SynthesizerAgent } from "./synthesizer.js";
 import { PlannerAgent } from "./planner.js";
 import { AnalystAgent, type AnalystPerspective } from "./analyst.js";
 import { ValidatorAgent } from "./validator.js";
-import { parseModelId } from "../config.js";
+import { parseModelId, loadConfig } from "../config.js";
 import { createChildLogger } from "../utils/logger.js";
 import { startPipelineSpan, endSpan, endSpanWithError } from "../observability/tracer.js";
 
@@ -18,6 +18,11 @@ const PIPELINE_ROUTES: Record<QueryComplexity, AgentRole[]> = {
   medium: ["planner", "researcher", "analyst", "synthesizer"],
   complex: ["planner", "researcher", "analyst", "validator", "synthesizer"],
 };
+
+/** Max chars to keep from researcher rawOutput when storing task results */
+const RESEARCHER_OUTPUT_CAP = 2000;
+/** Max chars to keep from analyst rawOutput when storing analysis */
+const ANALYST_OUTPUT_CAP = 3000;
 
 const classificationSchema = z.object({
   complexity: z.enum(["simple", "medium", "complex"]),
@@ -43,8 +48,9 @@ export class Orchestrator {
 
     // Step 1: Classify query complexity using fast model
     const classification = await this.classifyQuery(query);
-    this.deps.workspace.setComplexity(classification.complexity);
-    log.info({ complexity: classification.complexity, reasoning: classification.reasoning, suggestedTools: classification.suggestedTools }, "Query classified");
+    const complexity = classification.complexity;
+    this.deps.workspace.setComplexity(complexity);
+    log.info({ complexity, reasoning: classification.reasoning, suggestedTools: classification.suggestedTools }, "Query classified");
 
     // Step 1b: Match skills
     if (this.deps.skillRegistry) {
@@ -56,12 +62,12 @@ export class Orchestrator {
       }
     }
 
-    const pipeline = PIPELINE_ROUTES[classification.complexity];
-    pipelineSpan = startPipelineSpan(query, classification.complexity);
+    const pipeline = PIPELINE_ROUTES[complexity];
+    pipelineSpan = startPipelineSpan(query, complexity);
 
     this.deps.bus.emit({
       type: "pipeline:start",
-      complexity: classification.complexity,
+      complexity,
       agents: pipeline,
     });
 
@@ -69,13 +75,13 @@ export class Orchestrator {
       // Step 2: Run agents in sequence, with special handling for researcher (task graph) and analyst (bull/bear)
       for (const agentRole of pipeline) {
         if (agentRole === "researcher" && this.deps.workspace.plan) {
-          // Use task graph execution when a plan exists
-          await this.executeResearchPlan();
-        } else if (agentRole === "analyst" && classification.complexity === "complex") {
-          // Run bull/bear debate for complex queries
-          await this.runBullBearDebate();
+          await this.executeResearchPlan(complexity);
+        } else if (agentRole === "analyst" && complexity === "complex" && this.isBullBearEnabled()) {
+          await this.runBullBearDebate(complexity);
+        } else if (agentRole === "validator" && this.shouldSkipValidator()) {
+          log.info("Skipping validator — fact confidence is uniformly high");
         } else {
-          const agent = this.createAgent(agentRole);
+          const agent = this.createAgent(agentRole, complexity);
           const output = await agent.run();
 
           if (output.facts.length > 0) {
@@ -88,7 +94,11 @@ export class Orchestrator {
             this.deps.workspace.setAnswer(output.answer);
           }
           if (agentRole === "analyst" && output.rawOutput) {
-            this.deps.workspace.setAnalysis(output.rawOutput);
+            this.deps.workspace.setAnalysis(
+              output.rawOutput.length > ANALYST_OUTPUT_CAP
+                ? output.rawOutput.slice(0, ANALYST_OUTPUT_CAP)
+                : output.rawOutput,
+            );
           }
         }
       }
@@ -111,11 +121,34 @@ export class Orchestrator {
     }
   }
 
+  /** Check if bull/bear debate is enabled via config */
+  private isBullBearEnabled(): boolean {
+    try {
+      return loadConfig().bullBearEnabled;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Confidence-based validator skip.
+   * Returns true if we should skip the validator (all facts are high confidence).
+   */
+  private shouldSkipValidator(): boolean {
+    const facts = this.deps.workspace.facts;
+    if (facts.length === 0) return false;
+
+    const avgConfidence = facts.reduce((sum, f) => sum + f.confidence, 0) / facts.length;
+    const hasLowConfidence = facts.some((f) => f.confidence < 0.6);
+
+    return avgConfidence >= 0.85 && !hasLowConfidence;
+  }
+
   /**
    * Execute the research plan using dependency-based waves.
    * Tasks whose dependencies are all completed run in parallel within each wave.
    */
-  private async executeResearchPlan(): Promise<void> {
+  private async executeResearchPlan(complexity: QueryComplexity): Promise<void> {
     const plan = this.deps.workspace.plan;
     if (!plan) return;
 
@@ -151,7 +184,7 @@ export class Orchestrator {
       const results = await Promise.allSettled(
         ready.map(async (task) => {
           task.status = "in_progress";
-          const researcher = new ResearcherAgent(this.deps, task);
+          const researcher = new ResearcherAgent(this.deps, task, complexity);
           const output = await researcher.run();
 
           if (output.facts.length > 0) {
@@ -159,7 +192,10 @@ export class Orchestrator {
           }
 
           task.status = "completed";
-          task.result = output.rawOutput;
+          // Compress output on handoff — downstream agents use structured facts, not raw text
+          task.result = output.rawOutput.length > RESEARCHER_OUTPUT_CAP
+            ? output.rawOutput.slice(0, RESEARCHER_OUTPUT_CAP)
+            : output.rawOutput;
           return output;
         }),
       );
@@ -208,23 +244,30 @@ export class Orchestrator {
   /**
    * Run bull and bear analysts in parallel for complex queries.
    */
-  private async runBullBearDebate(): Promise<void> {
+  private async runBullBearDebate(complexity: QueryComplexity): Promise<void> {
     log.info("Running bull/bear debate");
 
     const [bullOutput, bearOutput] = await Promise.all([
-      new AnalystAgent(this.deps, "bull").run(),
-      new AnalystAgent(this.deps, "bear").run(),
+      new AnalystAgent(this.deps, "bull", complexity).run(),
+      new AnalystAgent(this.deps, "bear", complexity).run(),
     ]);
 
     if (bullOutput.facts.length > 0) this.deps.workspace.addFacts(bullOutput.facts);
     if (bearOutput.facts.length > 0) this.deps.workspace.addFacts(bearOutput.facts);
 
-    // Store both perspectives for the synthesizer
-    if (bullOutput.rawOutput) this.deps.workspace.setBullAnalysis(bullOutput.rawOutput);
-    if (bearOutput.rawOutput) this.deps.workspace.setBearAnalysis(bearOutput.rawOutput);
+    // Store both perspectives for the synthesizer (with output compression)
+    const capBull = bullOutput.rawOutput.length > ANALYST_OUTPUT_CAP
+      ? bullOutput.rawOutput.slice(0, ANALYST_OUTPUT_CAP)
+      : bullOutput.rawOutput;
+    const capBear = bearOutput.rawOutput.length > ANALYST_OUTPUT_CAP
+      ? bearOutput.rawOutput.slice(0, ANALYST_OUTPUT_CAP)
+      : bearOutput.rawOutput;
+
+    if (capBull) this.deps.workspace.setBullAnalysis(capBull);
+    if (capBear) this.deps.workspace.setBearAnalysis(capBear);
 
     // Also set the combined analysis
-    const combined = `## Bull Case\n${bullOutput.rawOutput}\n\n## Bear Case\n${bearOutput.rawOutput}`;
+    const combined = `## Bull Case\n${capBull}\n\n## Bear Case\n${capBear}`;
     this.deps.workspace.setAnalysis(combined);
   }
 
@@ -256,14 +299,14 @@ Also suggest which tools would be helpful. Available tool categories: finance (f
     return result.object;
   }
 
-  private createAgent(role: AgentRole) {
+  private createAgent(role: AgentRole, complexity?: QueryComplexity) {
     switch (role) {
       case "planner":
         return new PlannerAgent(this.deps);
       case "researcher":
-        return new ResearcherAgent(this.deps);
+        return new ResearcherAgent(this.deps, undefined, complexity);
       case "analyst":
-        return new AnalystAgent(this.deps);
+        return new AnalystAgent(this.deps, "neutral", complexity);
       case "validator":
         return new ValidatorAgent(this.deps);
       case "synthesizer":

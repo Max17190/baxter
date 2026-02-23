@@ -1,6 +1,6 @@
 import { BaseAgent, type BaseAgentDeps } from "./base-agent.js";
 import type { AgentOutput } from "./types.js";
-import type { ResearchTask } from "../types.js";
+import type { QueryComplexity, ResearchTask } from "../types.js";
 import { extractFactsWithLLM } from "./fact-extractor.js";
 
 const SYSTEM_PROMPT = `You are a financial research agent. Your job is to gather data and facts using the available tools.
@@ -15,15 +15,23 @@ Guidelines:
 
 When you're done, summarize all the facts you found in a structured format.`;
 
+const RESEARCHER_MAX_STEPS: Record<QueryComplexity, number> = {
+  simple: 3,
+  medium: 6,
+  complex: 10,
+};
+
 export class ResearcherAgent extends BaseAgent {
   private task?: ResearchTask;
 
-  constructor(deps: BaseAgentDeps, task?: ResearchTask) {
+  constructor(deps: BaseAgentDeps, task?: ResearchTask, complexity?: QueryComplexity) {
     // Get all available tool names, or narrow to task-specified tools
     const allTools = task?.tools?.length ? task.tools : deps.toolRegistry.names;
     const systemPrompt = task
       ? `${SYSTEM_PROMPT}\n\nYour specific task: ${task.description}\nFocus on using these tools: ${task.tools.join(", ")}`
       : SYSTEM_PROMPT;
+
+    const maxSteps = RESEARCHER_MAX_STEPS[complexity ?? deps.workspace.complexity ?? "complex"];
 
     super(
       {
@@ -31,7 +39,7 @@ export class ResearcherAgent extends BaseAgent {
         modelTier: "fast",
         systemPrompt,
         tools: allTools,
-        maxSteps: 10,
+        maxSteps,
       },
       deps,
     );

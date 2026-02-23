@@ -21,7 +21,12 @@ const PROVIDER_FACTORIES: Record<string, ProviderFactory> = {
 
   anthropic: (config) => {
     if (!config.anthropicApiKey) return null;
-    const provider = createAnthropic({ apiKey: config.anthropicApiKey });
+    const provider = createAnthropic({
+      apiKey: config.anthropicApiKey,
+      headers: {
+        "anthropic-beta": "token-efficient-tool-use-2025-04-14",
+      },
+    });
     return (model: string) => provider(model);
   },
 

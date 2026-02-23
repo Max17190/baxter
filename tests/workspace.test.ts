@@ -165,7 +165,7 @@ describe("Workspace", () => {
       expect(ctx).toContain("Analyze Apple revenue trends");
     });
 
-    test("analyst context includes research facts", () => {
+    test("analyst context includes research facts filtered by confidence", () => {
       const ws = new Workspace("test query");
       ws.addFact(
         makeFact({
@@ -176,9 +176,46 @@ describe("Workspace", () => {
         }),
       );
       const ctx = ws.buildContextFor("analyst");
-      expect(ctx).toContain("Research Facts (1):");
+      expect(ctx).toContain("Research Facts (1 of 1 total");
       expect(ctx).toContain("Revenue was $100B");
       expect(ctx).toContain("researcher/sec_search");
+      expect(ctx).toContain("Analyze the research facts above using calculation tools");
+    });
+
+    test("analyst context filters out low-confidence facts", () => {
+      const ws = new Workspace("test query");
+      ws.addFacts([
+        makeFact({ id: "f1", content: "High conf fact", confidence: 0.9 }),
+        makeFact({ id: "f2", content: "Low conf fact", confidence: 0.4 }),
+        makeFact({ id: "f3", content: "Medium conf fact", confidence: 0.6 }),
+      ]);
+      const ctx = ws.buildContextFor("analyst");
+      expect(ctx).toContain("Research Facts (2 of 3 total");
+      expect(ctx).toContain("High conf fact");
+      expect(ctx).toContain("Medium conf fact");
+      expect(ctx).not.toContain("Low conf fact");
+    });
+
+    test("analyst context sorts facts by confidence desc", () => {
+      const ws = new Workspace("test query");
+      ws.addFacts([
+        makeFact({ id: "f1", content: "Medium fact", confidence: 0.7 }),
+        makeFact({ id: "f2", content: "High fact", confidence: 0.95 }),
+      ]);
+      const ctx = ws.buildContextFor("analyst");
+      const highPos = ctx.indexOf("High fact");
+      const medPos = ctx.indexOf("Medium fact");
+      expect(highPos).toBeLessThan(medPos);
+    });
+
+    test("analyst context caps at 30 facts", () => {
+      const ws = new Workspace("test query");
+      const facts = Array.from({ length: 40 }, (_, i) =>
+        makeFact({ id: `f${i}`, content: `Fact ${i}`, confidence: 0.8 }),
+      );
+      ws.addFacts(facts);
+      const ctx = ws.buildContextFor("analyst");
+      expect(ctx).toContain("Research Facts (30 of 40 total");
     });
 
     test("validator context includes facts and analysis", () => {

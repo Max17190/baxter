@@ -29,6 +29,9 @@ const configSchema = z.object({
   langsmithProject: z.string().default("baxter"),
   otelEndpoint: z.string().url().optional(),
 
+  // Pipeline tuning
+  bullBearEnabled: z.coerce.boolean().default(false),
+
   // General
   logLevel: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
   cacheTtlSeconds: z.coerce.number().int().positive().default(3600),
@@ -58,6 +61,7 @@ export function loadConfig(): Config {
     langsmithApiKey: env.LANGSMITH_API_KEY,
     langsmithProject: env.LANGSMITH_PROJECT,
     otelEndpoint: env.OTEL_EXPORTER_OTLP_ENDPOINT,
+    bullBearEnabled: env.BULL_BEAR_ENABLED,
     logLevel: env.LOG_LEVEL,
     cacheTtlSeconds: env.CACHE_TTL_SECONDS,
     maxToolConcurrency: env.MAX_TOOL_CONCURRENCY,

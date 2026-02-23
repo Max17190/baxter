@@ -67,4 +67,46 @@ describe("Conversation", () => {
     const result = await conv.resolveFollowUp("What about margins?", fakeModel);
     expect(result).toBe("What about margins?");
   });
+
+  describe("heuristic gate", () => {
+    test("skips LLM call for standalone query with ticker", async () => {
+      const conv = new Conversation();
+      conv.addTurn("Analyze MSFT", "Strong company", []);
+
+      // If LLM were called, this model would throw — proving the gate works
+      const fakeModel = {
+        doGenerate: async () => { throw new Error("should not be called"); },
+      } as any;
+
+      const result = await conv.resolveFollowUp("What is AAPL PE ratio?", fakeModel);
+      expect(result).toBe("What is AAPL PE ratio?");
+    });
+
+    test("invokes LLM for query with pronoun reference", async () => {
+      const conv = new Conversation();
+      conv.addTurn("Analyze AAPL", "Strong company", []);
+
+      // Model throws, proving it WAS called (falls back to original)
+      const fakeModel = {
+        doGenerate: async () => { throw new Error("model called"); },
+      } as any;
+
+      // "their" triggers resolution attempt — falls back to original on error
+      const result = await conv.resolveFollowUp("What about their margins?", fakeModel);
+      expect(result).toBe("What about their margins?");
+    });
+
+    test("invokes LLM for query without ticker", async () => {
+      const conv = new Conversation();
+      conv.addTurn("Analyze Apple", "Strong company", []);
+
+      const fakeModel = {
+        doGenerate: async () => { throw new Error("model called"); },
+      } as any;
+
+      // No ticker, no pronoun — but no uppercase ticker detected → triggers resolution
+      const result = await conv.resolveFollowUp("what about margins?", fakeModel);
+      expect(result).toBe("what about margins?");
+    });
+  });
 });

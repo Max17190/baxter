@@ -33,9 +33,15 @@ export class Conversation {
   /**
    * Resolve ambiguous follow-up queries using conversation context.
    * e.g., "What about their margins?" → "What are AAPL's margins?"
+   *
+   * Uses a heuristic gate to skip the LLM call when the query is obviously standalone:
+   * only invokes the model when the query contains pronoun/reference words OR lacks
+   * a ticker/company name.
    */
   async resolveFollowUp(query: string, fastModel: LanguageModelV1): Promise<string> {
     if (this.turns.length === 0) return query;
+
+    if (!this.needsResolution(query)) return query;
 
     try {
       const context = this.turns
@@ -64,6 +70,26 @@ Examples:
     } catch {
       return query; // On failure, use original query
     }
+  }
+
+  /**
+   * Heuristic check: does this query likely reference prior conversation context?
+   * Returns true if we should invoke the LLM for follow-up resolution.
+   */
+  private needsResolution(query: string): boolean {
+    const lower = query.toLowerCase();
+
+    // Pronoun / reference patterns that suggest a follow-up
+    const referencePattern = /\b(their|his|her|its|that|this|it|them|same|previous|last|those|the company|the stock|above|earlier)\b/;
+    if (referencePattern.test(lower)) return true;
+
+    // If the query contains an explicit ticker (1-5 uppercase letters) or a recognizable
+    // company-like proper noun, it's likely standalone.
+    const hasTicker = /\b[A-Z]{1,5}\b/.test(query);
+    if (hasTicker) return false;
+
+    // No ticker found — might be a follow-up like "What about margins?"
+    return true;
   }
 
   /** Build context string for workspace seeding */

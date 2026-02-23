@@ -98,5 +98,6 @@ describe("loadConfig", () => {
     expect(config.maxToolConcurrency).toBe(5);
     expect(config.langsmithProject).toBe("baxter");
     expect(config.anthropicApiKey).toBe("test-key-for-defaults");
+    expect(config.bullBearEnabled).toBe(false);
   });
 });

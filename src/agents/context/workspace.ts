@@ -176,19 +176,25 @@ export class Workspace {
         }
         break;
 
-      case "analyst":
-        // Analyst needs facts from research
-        if (this.state.facts.length > 0) {
-          parts.push(`\nResearch Facts (${this.state.facts.length}):`);
-          for (const fact of this.state.facts) {
+      case "analyst": {
+        // Analyst gets tiered facts: confidence >= 0.6, sorted by confidence desc, capped at 30
+        const analystFacts = this.state.facts
+          .filter((f) => f.confidence >= 0.6)
+          .sort((a, b) => b.confidence - a.confidence)
+          .slice(0, 30);
+        if (analystFacts.length > 0) {
+          parts.push(`\nResearch Facts (${analystFacts.length} of ${this.state.facts.length} total, filtered by confidence >= 0.6):`);
+          for (const fact of analystFacts) {
             parts.push(`- [${fact.confidence.toFixed(2)}] ${fact.content} (via ${fact.provenance.agent}/${fact.provenance.tool ?? "reasoning"})`);
           }
         }
+        parts.push("\nAnalyze the research facts above using calculation tools. The research phase already gathered all relevant data.");
         // Inject matched skill instructions
         if (this.state.matchedSkill) {
           parts.push(`\nSkill Instructions (${this.state.matchedSkill.name}):\n${this.state.matchedSkill.prompt}`);
         }
         break;
+      }
 
       case "validator":
         // Validator needs facts and analysis

@@ -1,6 +1,14 @@
 import { BaseAgent, type BaseAgentDeps } from "./base-agent.js";
 import type { AgentOutput } from "./types.js";
+import type { QueryComplexity } from "../types.js";
 import { extractFactsWithLLM } from "./fact-extractor.js";
+
+const CALCULATION_TOOLS = [
+  "calculate_financial_ratios",
+  "calculate_growth_rates",
+  "calculate_statistics",
+  "calculate_dcf",
+];
 
 const SYSTEM_PROMPT = `You are a financial analyst agent. Your job is to analyze gathered research data and produce insights.
 
@@ -18,7 +26,7 @@ Available calculation tools:
 - calculate_statistics: Compute mean, median, standard deviation
 - calculate_dcf: Run discounted cash flow valuation
 
-You also have access to financial data tools if you need additional data points.
+Analyze the research facts provided in your context using calculation tools. The research phase already gathered all relevant data — do not attempt to fetch new data.
 
 Output a structured analysis with clear sections and quantitative evidence.`;
 
@@ -40,20 +48,26 @@ Be persuasive but honest — back every claim with data.`,
 Be persuasive but honest — back every claim with data.`,
 };
 
+const ANALYST_MAX_STEPS: Record<QueryComplexity, number> = {
+  simple: 5,
+  medium: 5,
+  complex: 8,
+};
+
 export class AnalystAgent extends BaseAgent {
   private perspective: AnalystPerspective;
 
-  constructor(deps: BaseAgentDeps, perspective: AnalystPerspective = "neutral") {
-    const allTools = deps.toolRegistry.names;
+  constructor(deps: BaseAgentDeps, perspective: AnalystPerspective = "neutral", complexity?: QueryComplexity) {
     const systemPrompt = SYSTEM_PROMPT + PERSPECTIVE_PROMPTS[perspective];
+    const maxSteps = ANALYST_MAX_STEPS[complexity ?? deps.workspace.complexity ?? "complex"];
 
     super(
       {
         role: "analyst",
         modelTier: "primary",
         systemPrompt,
-        tools: allTools,
-        maxSteps: 8,
+        tools: CALCULATION_TOOLS,
+        maxSteps,
       },
       deps,
     );
