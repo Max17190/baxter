@@ -60,6 +60,15 @@ const PROVIDER_FACTORIES: Record<string, ProviderFactory> = {
     return (model: string) => provider(model);
   },
 
+  moonshot: (config) => {
+    if (!config.moonshotApiKey) return null;
+    const provider = createOpenAI({
+      apiKey: config.moonshotApiKey,
+      baseURL: "https://api.moonshot.cn/v1",
+    });
+    return (model: string) => provider(model);
+  },
+
   ollama: (config) => {
     if (!config.ollamaBaseUrl) return null;
     const provider = createOpenAI({

@@ -12,6 +12,7 @@ const configSchema = z.object({
   xaiApiKey: z.string().optional(),
   deepseekApiKey: z.string().optional(),
   openrouterApiKey: z.string().optional(),
+  moonshotApiKey: z.string().optional(),
   ollamaBaseUrl: z.string().url().optional(),
 
   // Model selection
@@ -23,6 +24,9 @@ const configSchema = z.object({
 
   // Web research
   firecrawlApiKey: z.string().optional(),
+  exaApiKey: z.string().optional(),
+  perplexityApiKey: z.string().optional(),
+  tavilyApiKey: z.string().optional(),
 
   // Observability
   langsmithApiKey: z.string().optional(),
@@ -53,11 +57,15 @@ export function loadConfig(): Config {
     xaiApiKey: env.XAI_API_KEY,
     deepseekApiKey: env.DEEPSEEK_API_KEY,
     openrouterApiKey: env.OPENROUTER_API_KEY,
+    moonshotApiKey: env.MOONSHOT_API_KEY,
     ollamaBaseUrl: env.OLLAMA_BASE_URL,
     primaryModel: env.PRIMARY_MODEL,
     fastModel: env.FAST_MODEL,
     financialDatasetsApiKey: env.FINANCIAL_DATASETS_API_KEY,
     firecrawlApiKey: env.FIRECRAWL_API_KEY,
+    exaApiKey: env.EXASEARCH_API_KEY,
+    perplexityApiKey: env.PERPLEXITY_API_KEY,
+    tavilyApiKey: env.TAVILY_API_KEY,
     langsmithApiKey: env.LANGSMITH_API_KEY,
     langsmithProject: env.LANGSMITH_PROJECT,
     otelEndpoint: env.OTEL_EXPORTER_OTLP_ENDPOINT,
@@ -89,6 +97,7 @@ export function loadConfig(): Config {
     cfg.xaiApiKey ||
     cfg.deepseekApiKey ||
     cfg.openrouterApiKey ||
+    cfg.moonshotApiKey ||
     cfg.ollamaBaseUrl;
 
   if (!hasProvider) {

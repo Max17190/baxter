@@ -16,6 +16,7 @@ import { App } from "./ui/app.js";
 import { registerCalculationTools } from "./tools/calculation/register.js";
 import { createFinancialDataTool } from "./tools/financial-data.js";
 import { createWebResearchTool } from "./tools/web-research.js";
+import { createWebFetchTool } from "./tools/web-fetch.js";
 import type { SynthesizedAnswer } from "./types.js";
 import { createChildLogger } from "./utils/logger.js";
 import { mkdirSync } from "node:fs";
@@ -65,14 +66,23 @@ async function main() {
     fastModel: router.fast,
   }));
 
-  // 2. web_research: unified search + scrape (only if Firecrawl key available)
-  if (config.firecrawlApiKey) {
-    toolRegistry.register(createWebResearchTool());
+  // 2. web_research: unified search + scrape (Firecrawl > Exa > Perplexity > Tavily)
+  const hasWebSearch = config.firecrawlApiKey || config.exaApiKey || config.perplexityApiKey || config.tavilyApiKey;
+  if (hasWebSearch) {
+    toolRegistry.register(createWebResearchTool({
+      firecrawlApiKey: config.firecrawlApiKey,
+      exaApiKey: config.exaApiKey,
+      perplexityApiKey: config.perplexityApiKey,
+      tavilyApiKey: config.tavilyApiKey,
+    }));
   } else {
-    log.warn("No FIRECRAWL_API_KEY set — web research tool not available. Set it for news, earnings calls, and qualitative research.");
+    log.warn("No web search API key set — web research tool not available. Set FIRECRAWL_API_KEY, EXASEARCH_API_KEY, PERPLEXITY_API_KEY, or TAVILY_API_KEY.");
   }
 
-  // 3. Calculation tools: always available (local, no API needed)
+  // 3. web_fetch: lightweight HTTP fetch (always available, no API key needed)
+  toolRegistry.register(createWebFetchTool());
+
+  // 4. Calculation tools: always available (local, no API needed)
   registerCalculationTools();
 
   if (!config.financialDatasetsApiKey) {

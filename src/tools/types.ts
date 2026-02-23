@@ -12,7 +12,7 @@ export interface ToolDefinition<TParams extends z.ZodType = z.ZodType<any>> {
   execute: (params: z.infer<TParams>) => Promise<ToolResult>;
 }
 
-export type ToolCategory = "firecrawl" | "finance" | "calculation" | "edgar";
+export type ToolCategory = "firecrawl" | "finance" | "calculation" | "edgar" | "web";
 
 /** Tool execution options */
 export interface ToolExecutionOptions {

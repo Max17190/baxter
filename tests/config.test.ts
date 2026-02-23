@@ -54,6 +54,7 @@ describe("loadConfig", () => {
     delete process.env.XAI_API_KEY;
     delete process.env.DEEPSEEK_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
+    delete process.env.MOONSHOT_API_KEY;
     delete process.env.OLLAMA_BASE_URL;
     delete process.env.PRIMARY_MODEL;
     delete process.env.FAST_MODEL;
@@ -79,6 +80,7 @@ describe("loadConfig", () => {
     delete process.env.XAI_API_KEY;
     delete process.env.DEEPSEEK_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
+    delete process.env.MOONSHOT_API_KEY;
     delete process.env.OLLAMA_BASE_URL;
     delete process.env.PRIMARY_MODEL;
     delete process.env.FAST_MODEL;
@@ -99,5 +101,54 @@ describe("loadConfig", () => {
     expect(config.langsmithProject).toBe("baxter");
     expect(config.anthropicApiKey).toBe("test-key-for-defaults");
     expect(config.bullBearEnabled).toBe(false);
+  });
+
+  test("accepts Moonshot as a valid provider", async () => {
+    process.env.MOONSHOT_API_KEY = "test-moonshot-key";
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    delete process.env.XAI_API_KEY;
+    delete process.env.DEEPSEEK_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    delete process.env.OLLAMA_BASE_URL;
+    delete process.env.PRIMARY_MODEL;
+    delete process.env.FAST_MODEL;
+    delete process.env.LOG_LEVEL;
+    delete process.env.CACHE_TTL_SECONDS;
+    delete process.env.MAX_TOOL_CONCURRENCY;
+
+    const timestamp = Date.now() + 2;
+    const configModule = await import(`../src/config.js?t=${timestamp}`);
+    const config = configModule.loadConfig();
+
+    expect(config.moonshotApiKey).toBe("test-moonshot-key");
+  });
+
+  test("loads web search API keys from env", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.EXASEARCH_API_KEY = "test-exa-key";
+    process.env.PERPLEXITY_API_KEY = "test-perplexity-key";
+    process.env.TAVILY_API_KEY = "test-tavily-key";
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    delete process.env.XAI_API_KEY;
+    delete process.env.DEEPSEEK_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    delete process.env.MOONSHOT_API_KEY;
+    delete process.env.OLLAMA_BASE_URL;
+    delete process.env.PRIMARY_MODEL;
+    delete process.env.FAST_MODEL;
+    delete process.env.LOG_LEVEL;
+    delete process.env.CACHE_TTL_SECONDS;
+    delete process.env.MAX_TOOL_CONCURRENCY;
+
+    const timestamp = Date.now() + 3;
+    const configModule = await import(`../src/config.js?t=${timestamp}`);
+    const config = configModule.loadConfig();
+
+    expect(config.exaApiKey).toBe("test-exa-key");
+    expect(config.perplexityApiKey).toBe("test-perplexity-key");
+    expect(config.tavilyApiKey).toBe("test-tavily-key");
   });
 });

@@ -7,7 +7,7 @@ Autonomous multi-agent financial research system built with TypeScript, Bun, and
 ```bash
 bun install
 bun start          # Launch TUI
-bun test           # Run tests (117 tests, all passing)
+bun test           # Run tests (125 tests, all passing)
 bun run eval       # Run evaluation suite
 ```
 
@@ -31,12 +31,13 @@ Key architectural decisions:
 
 ## Tool Consolidation
 
-The LLM sees only 6 tools (not 23):
+The LLM sees 7 tools:
 
 | Tool | What it does | API key needed? |
 |------|-------------|-----------------|
 | `financial_data` | Agentic router -> 14 sub-tools (11 finance + 3 EDGAR) | No (EDGAR free) / optional paid |
-| `web_research` | Unified search + URL scrape | Optional (Firecrawl) |
+| `web_research` | Unified search + URL scrape (Firecrawl > Exa > Perplexity > Tavily) | Optional (any web search key) |
+| `web_fetch` | Lightweight HTTP fetch + Readability extraction | No |
 | `calculate_financial_ratios` | PE, ROE, margins, etc. | No |
 | `calculate_growth_rates` | CAGR, YoY, sequential | No |
 | `calculate_statistics` | Mean, median, stddev | No |
@@ -69,7 +70,10 @@ src/
     types.ts                        # ToolDefinition with cacheable field
     registry.ts                     # Central registry + LRU cache wrapper
     financial-data.ts               # Agentic router (THE tool the LLM calls)
-    web-research.ts                 # Unified search/scrape
+    web-research.ts                 # Multi-backend search/scrape (Firecrawl > Exa > Perplexity > Tavily)
+    web-fetch.ts                    # Lightweight HTTP fetch (no API key, Readability extraction)
+    web-fetch-utils.ts              # HTML extraction utilities (Readability + markdown fallback)
+    search/                         # Search backends (exa.ts, perplexity.ts, tavily.ts)
     finance/                        # 11 sub-tools (income, balance, cash, prices, etc.)
     edgar/                          # 3 sub-tools (search, filings, XBRL facts)
     firecrawl/                      # 5 sub-tools (search, scrape, crawl, extract, agent)
@@ -80,7 +84,7 @@ src/
     loader.ts                       # YAML frontmatter parser
   llm/
     router.ts                       # Primary/fast model routing
-    provider-registry.ts            # 7 LLM providers
+    provider-registry.ts            # 8 LLM providers
     token-tracker.ts                # Per-model cost tracking
   observability/
     cost-tracker.ts                 # Session-level cost accumulation
@@ -91,7 +95,7 @@ src/
     circuit-breaker.ts              # Closed/open/half-open state machine
   ui/
     app.ts                          # pi-tui TUI with DataTable support
-tests/                              # 117 tests across 12 files
+tests/                              # 125 tests across 12 files
 evals/                              # 20 Q&A pairs, LLM-as-judge scoring
 ```
 
@@ -109,7 +113,7 @@ evals/                              # 20 Q&A pairs, LLM-as-judge scoring
 
 **LLM Providers (at least one required):**
 - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`
-- `XAI_API_KEY`, `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `OLLAMA_BASE_URL`
+- `XAI_API_KEY`, `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `MOONSHOT_API_KEY`, `OLLAMA_BASE_URL`
 
 **Model Selection:**
 - `PRIMARY_MODEL` (default: `anthropic:claude-sonnet-4-20250514`)
@@ -117,7 +121,12 @@ evals/                              # 20 Q&A pairs, LLM-as-judge scoring
 
 **Data APIs (all optional):**
 - `FINANCIAL_DATASETS_API_KEY` - Broader financial data (prices, insider trades, estimates)
-- `FIRECRAWL_API_KEY` - Web research (news, earnings calls, qualitative data)
+
+**Web Research (all optional, priority: Firecrawl > Exa > Perplexity > Tavily):**
+- `FIRECRAWL_API_KEY` - Web search + scrape (highest priority)
+- `EXASEARCH_API_KEY` - Exa neural search
+- `PERPLEXITY_API_KEY` - Perplexity Sonar search
+- `TAVILY_API_KEY` - Tavily search
 
 **Observability (optional):**
 - `OTEL_EXPORTER_OTLP_ENDPOINT` - OpenTelemetry trace export
@@ -130,7 +139,7 @@ TUI commands: `/help`, `/cost`, `/history`, `/skills`, `/debug`, `/clear`
 ## Testing
 
 ```bash
-bun test                  # All 117 tests
+bun test                  # All 125 tests
 bun run eval              # Full eval suite (20 queries, needs API keys)
 bun run eval simple-pe    # Single eval by ID
 bun run eval lookup       # Eval by category
