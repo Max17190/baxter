@@ -1,4 +1,4 @@
-import type { Component } from "@mariozechner/pi-tui";
+import { type Component, truncateToWidth } from "@mariozechner/pi-tui";
 import { theme, colorize, bold, dim } from "../theme.js";
 
 interface ChatMessage {
@@ -42,7 +42,8 @@ export class ChatLog implements Component {
       // Word-wrap the content
       const wrapped = wordWrap(msg.content, width - 4);
       for (let i = 0; i < wrapped.length; i++) {
-        lines.push(i === 0 ? `${prefix}${wrapped[i]}` : `    ${wrapped[i]}`);
+        const line = i === 0 ? `${prefix}${wrapped[i]}` : `    ${wrapped[i]}`;
+        lines.push(truncateToWidth(line, width));
       }
       lines.push(""); // Blank line between messages
     }

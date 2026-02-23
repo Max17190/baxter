@@ -1,4 +1,4 @@
-import type { Component } from "@mariozechner/pi-tui";
+import { type Component, truncateToWidth } from "@mariozechner/pi-tui";
 import { colorize, dim, theme } from "../theme.js";
 
 /** Simple progress indicator for pipeline stages */
@@ -42,7 +42,7 @@ export class ProgressBar implements Component {
     this.cachedLines = null;
   }
 
-  render(_width: number): string[] {
+  render(width: number): string[] {
     if (this.stages.length === 0) return [];
 
     const parts = this.stages.map((stage, i) => {
@@ -58,7 +58,7 @@ export class ProgressBar implements Component {
       return dim(`${theme.symbols.bullet} ${stage}`);
     });
 
-    this.cachedLines = [`  ${parts.join(dim("  \u2500  "))}`];
+    this.cachedLines = [truncateToWidth(`  ${parts.join(dim("  \u2500  "))}`, width)];
     return this.cachedLines;
   }
 }

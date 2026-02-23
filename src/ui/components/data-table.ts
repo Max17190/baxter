@@ -1,4 +1,4 @@
-import type { Component } from "@mariozechner/pi-tui";
+import { type Component, truncateToWidth } from "@mariozechner/pi-tui";
 import { bold, dim } from "../theme.js";
 
 interface TableColumn {
@@ -55,11 +55,11 @@ export class DataTable implements Component {
     const header = this.columns
       .map((col, i) => padCell(col.header, colWidths[i], col.align ?? "left"))
       .join(dim(" | "));
-    lines.push(`  ${bold(header)}`);
+    lines.push(truncateToWidth(`  ${bold(header)}`, width));
 
     // Separator
     const sep = colWidths.map((w) => "\u2500".repeat(w)).join(dim("\u2500+\u2500"));
-    lines.push(`  ${dim(sep)}`);
+    lines.push(truncateToWidth(`  ${dim(sep)}`, width));
 
     // Data rows
     for (const row of this.rows) {
@@ -69,7 +69,7 @@ export class DataTable implements Component {
           return padCell(val, colWidths[i], col.align ?? "left");
         })
         .join(dim(" | "));
-      lines.push(`  ${cells}`);
+      lines.push(truncateToWidth(`  ${cells}`, width));
     }
 
     lines.push("");

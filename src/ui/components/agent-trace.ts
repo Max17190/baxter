@@ -1,4 +1,4 @@
-import type { Component } from "@mariozechner/pi-tui";
+import { type Component, truncateToWidth } from "@mariozechner/pi-tui";
 import { theme, colorize, agentColor, dim } from "../theme.js";
 import type { AgentEvent } from "../../agents/types.js";
 
@@ -107,7 +107,7 @@ export class AgentTrace implements Component {
     // Invalidated
   }
 
-  render(_width: number): string[] {
+  render(width: number): string[] {
     if (this.entries.length === 0) return [];
 
     const lines: string[] = [];
@@ -126,9 +126,10 @@ export class AgentTrace implements Component {
             ? colorize(theme.symbols.check, theme.success)
             : colorize(theme.symbols.cross, theme.error);
 
-      lines.push(
+      lines.push(truncateToWidth(
         `  ${dim(prefix)} ${statusIcon} ${colorize(entry.agent, color)} ${dim(entry.message)}`,
-      );
+        width,
+      ));
 
       // Show tool calls as children
       for (let j = 0; j < entry.children.length; j++) {
@@ -147,9 +148,10 @@ export class AgentTrace implements Component {
               : colorize(theme.symbols.cross, theme.error);
 
         const duration = child.durationMs ? dim(` (${formatDuration(child.durationMs)})`) : "";
-        lines.push(
+        lines.push(truncateToWidth(
           `  ${dim(childPrefix)} ${dim(childConnector)} ${childIcon} ${dim(child.message)}${duration}`,
-        );
+          width,
+        ));
       }
     }
 

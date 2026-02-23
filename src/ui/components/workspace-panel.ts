@@ -1,4 +1,4 @@
-import type { Component } from "@mariozechner/pi-tui";
+import { type Component, truncateToWidth } from "@mariozechner/pi-tui";
 import { bold, dim, colorize, theme } from "../theme.js";
 import type { Workspace } from "../../agents/context/workspace.js";
 
@@ -35,12 +35,12 @@ export class WorkspacePanel implements Component {
     lines.push(divider);
 
     // Query
-    lines.push(`  ${dim("Query:")} ${ws.query}`);
+    lines.push(truncateToWidth(`  ${dim("Query:")} ${ws.query}`, width));
     lines.push(`  ${dim("Complexity:")} ${ws.complexity ?? "pending"}`);
 
     // Plan
     if (ws.plan) {
-      lines.push(`  ${dim("Plan:")} ${ws.plan.objective}`);
+      lines.push(truncateToWidth(`  ${dim("Plan:")} ${ws.plan.objective}`, width));
       lines.push(`  ${dim("Tasks:")} ${ws.plan.tasks.length}`);
     }
 
@@ -53,7 +53,7 @@ export class WorkspacePanel implements Component {
 
     // Analysis
     if (ws.analysis) {
-      lines.push(`  ${dim("Analysis:")} ${ws.analysis.slice(0, 80)}...`);
+      lines.push(truncateToWidth(`  ${dim("Analysis:")} ${ws.analysis}`, width));
     }
 
     // Validation issues
