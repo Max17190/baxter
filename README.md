@@ -1,6 +1,6 @@
 # Baxter
 
-Autonomous financial research agent with a true multi-agent architecture. Ask any financial question and get a researched, sourced answer.
+Autonomous financial research agent. Ask any question about a public company and get a sourced, cited answer backed by real data.
 
 ```
 $ bun start
@@ -12,140 +12,125 @@ a reflexion loop, and synthesizes a comprehensive answer with tables
 and citations.
 ```
 
-## Why Baxter?
+```
+                              Query
+                                |
+                                v
+                    +---------------------+
+                    |    Orchestrator      |
+                    |  (fast model classifies
+                    |   complexity + skills)
+                    +---------------------+
+                       |       |       |
+              simple   |       |       |   complex
+                       |       |       |
+               +-------+   medium  +---+--------+
+               |               |                 |
+               v               v                 v
+          Researcher      Planner            Planner
+               |               |                 |
+               |          task graph         task graph
+               |               |                 |
+               |          Researcher         Researcher
+               |        (parallel waves)   (parallel waves)
+               |               |                 |
+               |          Analyst            Analyst
+               |               |          (2-round bull/bear
+               |               |              debate)
+               |               |                 |
+               |               |           Validator
+               |               |        (reflexion loop)
+               |               |                 |
+               v               v                 v
+                    +---------------------+
+                    |    Synthesizer       |
+                    |  (streaming answer   |
+                    |   with citations)    |
+                    +---------------------+
+                                |
+                                v
+                            Answer
+```
 
-Most "multi-agent" financial tools are single ReAct loops pretending to be multiple agents. Baxter is different:
+---
 
-- **6 specialized agents** with distinct roles: Orchestrator, Planner, Researcher, Analyst, Validator, Synthesizer
-- **Dynamic routing** -- simple lookups skip the planner; complex queries get the full pipeline with bull/bear debate
-- **Task graph execution** -- the planner creates a dependency graph, and researchers execute tasks in parallel waves
-- **Reflexion loop** -- when the validator finds issues, Baxter re-runs affected research tasks with corrective guidance (Shinn et al., NeurIPS 2023)
-- **2-round iterative debate** -- bull and bear analysts see and rebut each other's arguments (Du et al., ICML 2024)
-- **Works with zero paid data keys** -- SEC EDGAR provides free financial data for all public US companies
-- **Only 7 tools visible to the LLM** -- an agentic router dispatches to 14+ sub-tools internally, keeping the model focused
+## Table of Contents
 
-## Quick Start
+1. [Overview](#overview)
+2. [Prerequisites](#prerequisites)
+3. [How to Install](#how-to-install)
+4. [How to Run](#how-to-run)
+5. [Agents](#agents)
+6. [Tools](#tools)
+7. [Skills](#skills)
+8. [How to Evaluate](#how-to-evaluate)
+9. [How to Debug](#how-to-debug)
+10. [Configuration](#configuration)
+11. [How to Contribute](#how-to-contribute)
+12. [License](#license)
+
+---
+
+## Overview
+
+Most financial AI tools are a single ReAct loop with a "research" label slapped on top. Baxter is a genuine multi-agent system: 6 specialized agents with distinct roles, a dependency-aware task graph, and dynamic routing that skips unnecessary work on simple queries while deploying the full pipeline on complex ones.
+
+The interesting parts happen after the data is gathered. On complex queries, a bull analyst and a bear analyst independently build their cases, then each reads the other's argument and writes a rebuttal. That is two rounds of adversarial debate before the synthesizer ever sees the results. When the validator detects quality issues -- a data quality score below 0.7 or an outright error -- a reflexion loop kicks in. A fast model generates corrective guidance, only the affected research tasks re-run, the analyst re-processes, and the validator checks again. This adds zero cost when the data is already clean.
+
+Everything streams through a terminal UI. You see which agent is running, watch facts accumulate in real time, and get a final answer with inline citations and formatted tables. Follow-up questions work naturally -- "What about their margins?" resolves to the company you were just discussing -- and facts persist across sessions in a local SQLite database.
+
+Baxter works out of the box with zero paid data keys. SEC EDGAR provides free financial data for every public US company. Add optional API keys to unlock richer data sources and web search, but the core pipeline runs on a single LLM API key and nothing else.
+
+## Prerequisites
+
+- [Bun](https://bun.sh) runtime (v1.0+)
+- At least one LLM API key (e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`)
+
+That's it. Financial data is available immediately via free SEC EDGAR. Web search and premium financial data are optional.
+
+## How to Install
+
+Install Bun if you don't have it:
 
 ```bash
-# Install
+# macOS / Linux
+curl -fsSL https://bun.sh/install | bash
+
+# Windows
+powershell -c "irm bun.sh/install.ps1 | iex"
+
+# Homebrew
+brew install oven-sh/bun/bun
+```
+
+Then clone and install dependencies:
+
+```bash
+git clone <repo-url> && cd baxter
 bun install
+```
 
-# Set at least one LLM API key
+Set at least one LLM API key:
+
+```bash
 export ANTHROPIC_API_KEY=sk-ant-...
+```
 
-# Run
+## How to Run
+
+Launch the interactive TUI:
+
+```bash
 bun start
+```
 
-# Or with a direct query
+Or pass a query directly:
+
+```bash
 bun start "What is AAPL's PE ratio?"
 ```
 
-That's it. Baxter works immediately with free SEC EDGAR data. For richer data, add optional API keys:
-
-```bash
-# Optional: broader financial data (prices, insider trades, analyst estimates)
-export FINANCIAL_DATASETS_API_KEY=...
-
-# Optional: web research (any one of these, priority order)
-export FIRECRAWL_API_KEY=...     # Firecrawl (search + scrape)
-export EXASEARCH_API_KEY=...     # Exa neural search
-export PERPLEXITY_API_KEY=...    # Perplexity Sonar
-export TAVILY_API_KEY=...        # Tavily search
-```
-
-## Architecture
-
-```
-Query
-  |
-  v
-Orchestrator (fast model classifies complexity + matches skills)
-  |
-  +--[simple]--> Researcher --> Synthesizer --> Answer
-  |
-  +--[medium]--> Planner --> Researcher (task graph) --> Analyst --> Synthesizer --> Answer
-  |
-  +--[complex]--> Planner --> Researcher (parallel waves) --> Analyst (2-round bull/bear debate)
-                    --> Validator (reflexion loop if quality < threshold) --> Synthesizer --> Answer
-```
-
-### Agents
-
-| Agent | Role | Model |
-|-------|------|-------|
-| **Orchestrator** | Classify query complexity, match skills, route pipeline | Fast |
-| **Planner** | Decompose into research tasks with dependency graph | Primary |
-| **Researcher** | Execute tools to gather data (parallel waves) | Fast |
-| **Analyst** | Financial analysis; 2-round iterative bull/bear debate on complex queries | Primary |
-| **Validator** | Cross-check facts, flag inconsistencies; triggers reflexion if quality is low | Fast |
-| **Synthesizer** | Generate final answer with citations and tables | Primary |
-
-### Reflexion Loop
-
-When the validator finds significant issues (data quality score < 0.7 or severity "error"), Baxter doesn't just pass bad data to the synthesizer. Instead:
-
-1. A fast-model reflection generates corrective guidance
-2. Only the affected research tasks are re-executed with reflection context
-3. The analyst re-runs with updated facts
-4. The validator checks again (max configurable rounds)
-
-This adds zero cost when results are already good.
-
-### Iterative Debate
-
-On complex queries with `BULL_BEAR_ENABLED=true`:
-
-- **Round 1**: Bull and bear analysts run independently in parallel
-- **Round 2**: Each analyst sees the opponent's Round 1 output and produces a rebuttal
-- The synthesizer receives all 4 perspectives for a balanced assessment
-
-## Tools
-
-The LLM sees **7 tools**, keeping decisions focused and context efficient:
-
-| Tool | Description | API Key? |
-|------|-------------|----------|
-| `financial_data` | Get any financial data. Agentic router dispatches to 14 sub-tools internally (income statements, balance sheets, cash flows, prices, metrics, SEC filings, insider trades, institutional holdings, analyst estimates, segment data, and 3 EDGAR endpoints). | No (EDGAR free) |
-| `web_research` | Search the web or scrape a URL. Supports Firecrawl, Exa, Perplexity, and Tavily backends (first available key wins). | Optional |
-| `web_fetch` | Fetch and extract content from any URL using Readability. No API key required. | No |
-| `calculate_financial_ratios` | Compute PE, PB, ROE, ROA, margins, liquidity, and leverage ratios from raw data. | No |
-| `calculate_growth_rates` | Compute CAGR, YoY growth, and sequential growth rates. | No |
-| `calculate_statistics` | Compute mean, median, standard deviation, and percentiles. | No |
-| `calculate_dcf` | Run a full DCF valuation with terminal value and sensitivity analysis. | No |
-
-The `financial_data` tool uses a fast-model LLM call to route natural language like "AAPL income statements last 3 years" to the correct sub-tool. When no `FINANCIAL_DATASETS_API_KEY` is set, it falls back to free SEC EDGAR data automatically.
-
-## Skills
-
-7 built-in research skills activate automatically based on your query:
-
-| Skill | Triggers |
-|-------|----------|
-| **DCF Valuation** | "dcf", "discounted cash flow", "intrinsic value", "fair value" |
-| **Earnings Analysis** | "earnings", "quarterly results", "eps" |
-| **Comparable Analysis** | "comparable", "comps", "peer comparison" |
-| **Portfolio Review** | "portfolio", "holdings", "diversification" |
-| **Risk Assessment** | "risk", "risk factors", "downside" |
-| **SEC Filing Analysis** | "10-K", "10-Q", "SEC filing" |
-| **Sector Analysis** | "sector", "industry analysis" |
-
-Skills inject specialized prompts into the researcher and analyst agents, guiding tool usage and analytical frameworks.
-
-## Features
-
-- **Multi-turn conversations** -- follow-up queries resolved automatically ("What about their margins?" becomes "What are AAPL's margins?")
-- **Cross-session memory** -- facts persist in SQLite across sessions; prior knowledge seeded into new queries
-- **Structured table output** -- financial comparisons render as formatted tables in the TUI
-- **2-round bull/bear debate** -- complex queries run iterative analysts that rebut each other's arguments
-- **Reflexion loop** -- validator issues trigger targeted re-research with corrective guidance
-- **4 web search backends** -- Firecrawl, Exa, Perplexity, Tavily (priority order, first key found wins)
-- **Cost tracking** -- per-query and session-level cost breakdowns via `/cost`
-- **Circuit breakers** -- external APIs fail fast after repeated errors
-- **Tool result caching** -- LRU cache for cacheable tools (successful results only)
-- **OpenTelemetry tracing** -- full pipeline observability when configured
-- **Structured logging** -- Pino logging at all decision points
-
-## TUI Commands
+The TUI supports these commands:
 
 | Command | Description |
 |---------|-------------|
@@ -153,8 +138,104 @@ Skills inject specialized prompts into the researcher and analyst agents, guidin
 | `/cost` | Show session cost summary |
 | `/history` | Show recent queries |
 | `/skills` | List available research skills |
-| `/debug` | Toggle workspace debug panel (or Ctrl+D) |
+| `/debug` | Toggle workspace debug panel (or `Ctrl+D`) |
 | `/clear` | Clear the conversation |
+
+## Agents
+
+| Agent | Role | Model Tier |
+|-------|------|------------|
+| **Orchestrator** | Classify query complexity, match skills, route pipeline | Fast |
+| **Planner** | Decompose query into research tasks with dependency graph | Primary |
+| **Researcher** | Execute tools to gather data, runs tasks in parallel waves | Fast |
+| **Analyst** | Financial analysis; 2-round iterative bull/bear debate on complex queries | Primary |
+| **Validator** | Cross-check facts, flag inconsistencies; triggers reflexion if quality is low | Fast |
+| **Synthesizer** | Generate final answer with citations and tables | Primary |
+
+The orchestrator uses the fast model to classify queries into three complexity tiers. Each tier maps to a fixed pipeline:
+
+- **Simple** -- single data point lookups skip straight to the researcher and synthesizer.
+- **Medium** -- the planner creates a task graph, the researcher executes it in parallel waves, and the analyst provides a neutral assessment.
+- **Complex** -- the full pipeline runs: task graph, parallel research, 2-round bull/bear debate, validator with reflexion, and synthesis.
+
+### Iterative Debate
+
+When bull/bear debate is enabled on complex queries:
+
+1. **Round 1** -- Bull and bear analysts run independently in parallel.
+2. **Round 2** -- Each analyst reads the opponent's Round 1 output and produces a targeted rebuttal.
+3. The synthesizer receives all 4 perspectives for a balanced assessment.
+
+### Reflexion Loop
+
+When the validator finds significant issues (data quality score below 0.7 or severity "error"):
+
+1. A fast model generates corrective guidance identifying which research tasks need re-running.
+2. Only the affected tasks re-execute with reflection context.
+3. The analyst re-runs with updated facts.
+4. The validator checks again (up to 3 rounds, configurable).
+
+This adds zero overhead when results are already good -- the validator simply passes through.
+
+## Tools
+
+The LLM sees 7 tools. An agentic router dispatches `financial_data` requests to 14 sub-tools internally, keeping the model's decision space small and focused.
+
+| Tool | Description | API Key Required |
+|------|-------------|-----------------|
+| `financial_data` | Any financial data. Routes to 14 sub-tools: income statements, balance sheets, cash flows, prices, key metrics, SEC filings, insider trades, institutional holdings, analyst estimates, segment data, and 3 EDGAR endpoints. | No (EDGAR is free) |
+| `web_research` | Search the web or scrape a URL. Supports Firecrawl, Exa, Perplexity, and Tavily backends (first available key wins). | Optional |
+| `web_fetch` | Fetch and extract content from any URL using Readability. No API key required. | No |
+| `calculate_financial_ratios` | PE, PB, ROE, ROA, margins, liquidity, and leverage ratios from raw data. | No |
+| `calculate_growth_rates` | CAGR, YoY growth, and sequential growth rates. | No |
+| `calculate_statistics` | Mean, median, standard deviation, and percentiles. | No |
+| `calculate_dcf` | Full DCF valuation with terminal value and sensitivity analysis. | No |
+
+The `financial_data` tool uses a fast-model LLM call to route natural language like "AAPL income statements last 3 years" to the correct sub-tool. When no `FINANCIAL_DATASETS_API_KEY` is set, it falls back to free SEC EDGAR data automatically.
+
+## Skills
+
+7 built-in research skills activate automatically based on trigger keywords in your query. Skills inject specialized prompts into the researcher and analyst, guiding tool usage and analytical frameworks.
+
+| Skill | Triggers |
+|-------|----------|
+| DCF Valuation | "dcf", "discounted cash flow", "intrinsic value", "fair value" |
+| Earnings Analysis | "earnings", "quarterly results", "eps" |
+| Comparable Analysis | "comparable", "comps", "peer comparison" |
+| Portfolio Review | "portfolio", "holdings", "diversification" |
+| Risk Assessment | "risk", "risk factors", "downside" |
+| SEC Filing Analysis | "10-K", "10-Q", "SEC filing" |
+| Sector Analysis | "sector", "industry analysis" |
+
+## How to Evaluate
+
+Baxter includes an evaluation suite with 20 financial Q&A pairs scored by an LLM judge:
+
+```bash
+# Run the full suite
+bun run eval
+
+# Run a single eval by ID
+bun run eval simple-pe
+
+# Run evals by category
+bun run eval lookup
+```
+
+## How to Debug
+
+**Workspace panel** -- press `Ctrl+D` or type `/debug` to toggle a live view of the workspace: current facts, matched skills, task graph status, and validation issues.
+
+**Log levels** -- set `LOG_LEVEL` to control verbosity:
+
+```bash
+LOG_LEVEL=debug bun start    # See routing decisions, tool calls, agent handoffs
+LOG_LEVEL=trace bun start    # Everything, including raw LLM inputs/outputs
+```
+
+All logging is structured via Pino, so you can pipe output through `pino-pretty` or ship it to any log aggregator.
+
+**OpenTelemetry** -- set `OTEL_EXPORTER_OTLP_ENDPOINT` to export traces covering the full pipeline, individual agent runs, and tool executions.
 
 ## Configuration
 
@@ -175,9 +256,11 @@ Set at least one API key. Baxter supports 8 providers:
 
 ### Model Selection
 
+Baxter uses two model tiers. The primary model handles reasoning-heavy tasks (planning, analysis, synthesis). The fast model handles classification, routing, validation, and tool dispatch.
+
 ```bash
-PRIMARY_MODEL=anthropic:claude-sonnet-4-20250514   # Reasoning, analysis, synthesis
-FAST_MODEL=anthropic:claude-haiku-4-5-20251001     # Classification, routing, validation
+PRIMARY_MODEL=anthropic:claude-sonnet-4-20250514
+FAST_MODEL=anthropic:claude-haiku-4-5-20251001
 ```
 
 ### Optional Settings
@@ -193,33 +276,25 @@ FAST_MODEL=anthropic:claude-haiku-4-5-20251001     # Classification, routing, va
 | `REFLEXION_ENABLED` | `true` | Enable reflexion loop when validator finds issues |
 | `MAX_REFLEXION_ROUNDS` | `1` | Max re-execution rounds (0-3) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | -- | OpenTelemetry trace export URL |
-| `LOG_LEVEL` | `info` | Log level (`trace` / `debug` / `info` / `warn` / `error`) |
+| `LOG_LEVEL` | `info` | Log level (trace / debug / info / warn / error) |
 | `CACHE_TTL_SECONDS` | `3600` | Tool result cache TTL |
 | `MAX_TOOL_CONCURRENCY` | `5` | Max parallel tool executions |
 
-## Development
+## How to Contribute
+
+1. Fork the repository and create a feature branch.
+2. Make your changes. Run `bun test` and `bun run lint` before submitting.
+3. Open a pull request with a clear description of what changed and why.
+
+Development commands:
 
 ```bash
 bun dev              # Run with --watch
-bun test             # Run 125 tests
-bun run eval         # Run evaluation suite (20 financial Q&A pairs)
+bun test             # Run all tests
 bun run lint         # Check with Biome
 bun run lint:fix     # Auto-fix lint issues
 bun run typecheck    # TypeScript type checking
 ```
-
-## Tech Stack
-
-- **Runtime:** Bun
-- **Language:** TypeScript
-- **LLM:** Vercel AI SDK (`ai` + provider packages)
-- **Financial Data:** SEC EDGAR (free) + Financial Datasets API (optional)
-- **Web Research:** Firecrawl / Exa / Perplexity / Tavily (optional)
-- **Validation:** Zod
-- **Database:** SQLite (bun:sqlite)
-- **TUI:** pi-tui
-- **Observability:** Pino + OpenTelemetry
-- **Linting:** Biome
 
 ## License
 
