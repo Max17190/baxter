@@ -1,5 +1,5 @@
 import type { Fact, QueryComplexity, ResearchPlan, SynthesizedAnswer } from "../../types.js";
-import type { ValidationIssue, WorkspaceState } from "../types.js";
+import type { ReflectionSummary, ValidationIssue, WorkspaceState } from "../types.js";
 import type { SkillMeta } from "../../skills/loader.js";
 
 /**
@@ -136,6 +136,39 @@ export class Workspace {
     this.state.bearAnalysis = analysis;
   }
 
+  // --- Bull/Bear Round 1 (for iterative debate) ---
+  setBullAnalysisRound1(analysis: string): void {
+    this.state.bullAnalysisRound1 = analysis;
+  }
+
+  setBearAnalysisRound1(analysis: string): void {
+    this.state.bearAnalysisRound1 = analysis;
+  }
+
+  // --- Data Quality Score ---
+  setDataQualityScore(score: number): void {
+    this.state.dataQualityScore = score;
+  }
+
+  get dataQualityScore(): number | undefined {
+    return this.state.dataQualityScore;
+  }
+
+  // --- Reflexion ---
+  addReflectionSummary(summary: ReflectionSummary): void {
+    if (!this.state.reflectionSummaries) this.state.reflectionSummaries = [];
+    this.state.reflectionSummaries.push(summary);
+  }
+
+  get reflectionSummaries(): readonly ReflectionSummary[] | undefined {
+    return this.state.reflectionSummaries;
+  }
+
+  clearValidationIssues(): void {
+    this.state.validationIssues = undefined;
+    this.state.dataQualityScore = undefined;
+  }
+
   // --- Context Building ---
   /** Build context string for a specific agent role */
   buildContextFor(agent: string): string {
@@ -174,6 +207,12 @@ export class Workspace {
         if (this.state.matchedSkill) {
           parts.push(`\nSkill Instructions (${this.state.matchedSkill.name}):\n${this.state.matchedSkill.prompt}`);
         }
+        // Inject reflection guidance from prior validation round
+        if (this.state.reflectionSummaries?.length) {
+          const latest = this.state.reflectionSummaries[this.state.reflectionSummaries.length - 1];
+          parts.push(`\nReflection Notes (Round ${latest.round}):\n${latest.guidance}`);
+          parts.push("Focus on addressing the validation issues identified above.");
+        }
         break;
 
       case "analyst": {
@@ -193,6 +232,12 @@ export class Workspace {
         if (this.state.matchedSkill) {
           parts.push(`\nSkill Instructions (${this.state.matchedSkill.name}):\n${this.state.matchedSkill.prompt}`);
         }
+        // Inject reflection guidance from prior validation round
+        if (this.state.reflectionSummaries?.length) {
+          const latest = this.state.reflectionSummaries[this.state.reflectionSummaries.length - 1];
+          parts.push(`\nReflection Notes (Round ${latest.round}):\n${latest.guidance}`);
+          parts.push("Pay special attention to addressing these issues in your analysis.");
+        }
         break;
       }
 
@@ -206,6 +251,13 @@ export class Workspace {
         }
         if (this.state.analysis) {
           parts.push(`\nAnalysis:\n${this.state.analysis}`);
+        }
+        // Note prior validation round for reflexion
+        if (this.state.reflectionSummaries?.length) {
+          const latest = this.state.reflectionSummaries[this.state.reflectionSummaries.length - 1];
+          parts.push(`\nPrevious Validation Round: ${latest.round}`);
+          parts.push(`Issues previously identified: ${latest.issuesAddressed.join(", ")}`);
+          parts.push("Verify whether these issues have been resolved with the updated facts.");
         }
         break;
 
@@ -226,6 +278,9 @@ export class Workspace {
         if (this.state.bullAnalysis && this.state.bearAnalysis) {
           parts.push(`\nBull Case Analysis:\n${this.state.bullAnalysis}`);
           parts.push(`\nBear Case Analysis:\n${this.state.bearAnalysis}`);
+          if (this.state.bullAnalysisRound1 && this.state.bearAnalysisRound1) {
+            parts.push("\nNote: A 2-round debate was conducted. Round 1 positions and Round 2 rebuttals are included in the full analysis above.");
+          }
           parts.push("\nWeigh both the bull and bear perspectives to provide a balanced assessment.");
         }
         if (this.state.validationIssues?.length) {

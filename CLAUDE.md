@@ -19,12 +19,12 @@ bun run eval       # Run evaluation suite
 
 - **Simple** (lookup): Researcher -> Synthesizer
 - **Medium** (analysis): Planner -> Researcher -> Analyst -> Synthesizer
-- **Complex** (deep research): Planner -> Researcher -> Analyst (bull/bear) -> Validator -> Synthesizer
+- **Complex** (deep research): Planner -> Researcher -> Analyst (2-round bull/bear debate) -> Validator (with reflexion loop) -> Synthesizer
 
 Key architectural decisions:
 - **Orchestrator** classifies queries with the fast model, then coordinates the pipeline
 - **Planner** creates a task graph with dependencies; **Researcher** executes tasks in parallel waves
-- **Analyst** runs as bull/bear debate on complex queries (parallel with separate workspace writes)
+- **Analyst** runs as 2-round iterative bull/bear debate on complex queries (Round 2: each analyst rebuts the other's Round 1)
 - **Planner, Validator, Synthesizer** override `run()` to call `generateObject` directly (no wasteful `generateText`)
 - Agents return facts/output; the **orchestrator** owns all workspace writes (prevents race conditions)
 - **Fact extraction** uses LLM-based `generateObject`, not regex splitting
@@ -127,6 +127,11 @@ evals/                              # 20 Q&A pairs, LLM-as-judge scoring
 - `EXASEARCH_API_KEY` - Exa neural search
 - `PERPLEXITY_API_KEY` - Perplexity Sonar search
 - `TAVILY_API_KEY` - Tavily search
+
+**Pipeline Tuning (optional):**
+- `BULL_BEAR_ENABLED` - Enable 2-round iterative bull/bear debate on complex queries (default: false)
+- `REFLEXION_ENABLED` - Enable reflexion loop when validator finds issues (default: true)
+- `MAX_REFLEXION_ROUNDS` - Max re-execution rounds (default: 1, max: 3)
 
 **Observability (optional):**
 - `OTEL_EXPORTER_OTLP_ENDPOINT` - OpenTelemetry trace export

@@ -56,8 +56,9 @@ const ANALYST_MAX_STEPS: Record<QueryComplexity, number> = {
 
 export class AnalystAgent extends BaseAgent {
   private perspective: AnalystPerspective;
+  private additionalContext?: string;
 
-  constructor(deps: BaseAgentDeps, perspective: AnalystPerspective = "neutral", complexity?: QueryComplexity) {
+  constructor(deps: BaseAgentDeps, perspective: AnalystPerspective = "neutral", complexity?: QueryComplexity, additionalContext?: string) {
     const systemPrompt = SYSTEM_PROMPT + PERSPECTIVE_PROMPTS[perspective];
     const maxSteps = ANALYST_MAX_STEPS[complexity ?? deps.workspace.complexity ?? "complex"];
 
@@ -73,6 +74,15 @@ export class AnalystAgent extends BaseAgent {
     );
 
     this.perspective = perspective;
+    this.additionalContext = additionalContext;
+  }
+
+  protected override getContext(): string {
+    let context = super.getContext();
+    if (this.additionalContext) {
+      context += this.additionalContext;
+    }
+    return context;
   }
 
   protected async processResult(text: string): Promise<Partial<AgentOutput>> {

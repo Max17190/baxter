@@ -1,6 +1,7 @@
 import { generateObject } from "ai";
 import { z } from "zod";
-import type { QueryComplexity, AgentRole, SynthesizedAnswer, ResearchTask } from "../types.js";
+import type { QueryComplexity, AgentRole, SynthesizedAnswer, ResearchTask, ResearchPlan } from "../types.js";
+import type { ReflectionSummary, ValidationIssue } from "./types.js";
 import type { BaseAgentDeps } from "./base-agent.js";
 import { ResearcherAgent } from "./researcher.js";
 import { SynthesizerAgent } from "./synthesizer.js";
@@ -72,33 +73,18 @@ export class Orchestrator {
     });
 
     try {
-      // Step 2: Run agents in sequence, with special handling for researcher (task graph) and analyst (bull/bear)
+      // Step 2: Run agents in sequence, with special handling for researcher (task graph), analyst (bull/bear), and validator (reflexion)
       for (const agentRole of pipeline) {
         if (agentRole === "researcher" && this.deps.workspace.plan) {
           await this.executeResearchPlan(complexity);
         } else if (agentRole === "analyst" && complexity === "complex" && this.isBullBearEnabled()) {
           await this.runBullBearDebate(complexity);
-        } else if (agentRole === "validator" && this.shouldSkipValidator()) {
-          log.info("Skipping validator — fact confidence is uniformly high");
+        } else if (agentRole === "validator") {
+          await this.runValidatorWithReflexion(complexity);
         } else {
-          const agent = this.createAgent(agentRole, complexity);
-          const output = await agent.run();
-
-          if (output.facts.length > 0) {
-            this.deps.workspace.addFacts(output.facts);
-          }
-          if (output.plan) {
-            this.deps.workspace.setPlan(output.plan);
-          }
-          if (output.answer) {
-            this.deps.workspace.setAnswer(output.answer);
-          }
+          const output = await this.runAgent(agentRole, complexity);
           if (agentRole === "analyst" && output.rawOutput) {
-            this.deps.workspace.setAnalysis(
-              output.rawOutput.length > ANALYST_OUTPUT_CAP
-                ? output.rawOutput.slice(0, ANALYST_OUTPUT_CAP)
-                : output.rawOutput,
-            );
+            this.deps.workspace.setAnalysis(this.capOutput(output.rawOutput, ANALYST_OUTPUT_CAP));
           }
         }
       }
@@ -242,33 +228,220 @@ export class Orchestrator {
   }
 
   /**
-   * Run bull and bear analysts in parallel for complex queries.
+   * Run bull and bear analysts in a 2-round iterative debate.
+   * Round 1: Independent parallel execution.
+   * Round 2: Each analyst sees the opponent's Round 1 output and rebuts.
    */
   private async runBullBearDebate(complexity: QueryComplexity): Promise<void> {
-    log.info("Running bull/bear debate");
+    log.info("Running bull/bear debate (2 rounds)");
 
-    const [bullOutput, bearOutput] = await Promise.all([
+    // --- Round 1: Independent parallel execution ---
+    this.deps.bus.emit({ type: "pipeline:debate_round", round: 1 });
+
+    const [bullR1Output, bearR1Output] = await Promise.all([
       new AnalystAgent(this.deps, "bull", complexity).run(),
       new AnalystAgent(this.deps, "bear", complexity).run(),
     ]);
 
-    if (bullOutput.facts.length > 0) this.deps.workspace.addFacts(bullOutput.facts);
-    if (bearOutput.facts.length > 0) this.deps.workspace.addFacts(bearOutput.facts);
+    if (bullR1Output.facts.length > 0) this.deps.workspace.addFacts(bullR1Output.facts);
+    if (bearR1Output.facts.length > 0) this.deps.workspace.addFacts(bearR1Output.facts);
 
-    // Store both perspectives for the synthesizer (with output compression)
-    const capBull = bullOutput.rawOutput.length > ANALYST_OUTPUT_CAP
-      ? bullOutput.rawOutput.slice(0, ANALYST_OUTPUT_CAP)
-      : bullOutput.rawOutput;
-    const capBear = bearOutput.rawOutput.length > ANALYST_OUTPUT_CAP
-      ? bearOutput.rawOutput.slice(0, ANALYST_OUTPUT_CAP)
-      : bearOutput.rawOutput;
+    const capBullR1 = this.capOutput(bullR1Output.rawOutput, ANALYST_OUTPUT_CAP);
+    const capBearR1 = this.capOutput(bearR1Output.rawOutput, ANALYST_OUTPUT_CAP);
 
-    if (capBull) this.deps.workspace.setBullAnalysis(capBull);
-    if (capBear) this.deps.workspace.setBearAnalysis(capBear);
+    // Store Round 1 for synthesizer context
+    this.deps.workspace.setBullAnalysisRound1(capBullR1);
+    this.deps.workspace.setBearAnalysisRound1(capBearR1);
 
-    // Also set the combined analysis
-    const combined = `## Bull Case\n${capBull}\n\n## Bear Case\n${capBear}`;
+    // --- Round 2: Each analyst sees opponent's Round 1, rebuts ---
+    this.deps.bus.emit({ type: "pipeline:debate_round", round: 2 });
+
+    const bullR2Context = `\n--- Opponent's Bear Case (Round 1) ---\n${capBearR1}\n\nYou are now in Round 2 of the debate. Acknowledge valid points from the bear case, but strengthen your bull argument with specific rebuttals and additional evidence.`;
+    const bearR2Context = `\n--- Opponent's Bull Case (Round 1) ---\n${capBullR1}\n\nYou are now in Round 2 of the debate. Acknowledge valid points from the bull case, but strengthen your bear argument with specific rebuttals and additional evidence.`;
+
+    const [bullR2Output, bearR2Output] = await Promise.all([
+      new AnalystAgent(this.deps, "bull", complexity, bullR2Context).run(),
+      new AnalystAgent(this.deps, "bear", complexity, bearR2Context).run(),
+    ]);
+
+    if (bullR2Output.facts.length > 0) this.deps.workspace.addFacts(bullR2Output.facts);
+    if (bearR2Output.facts.length > 0) this.deps.workspace.addFacts(bearR2Output.facts);
+
+    const capBullR2 = this.capOutput(bullR2Output.rawOutput, ANALYST_OUTPUT_CAP);
+    const capBearR2 = this.capOutput(bearR2Output.rawOutput, ANALYST_OUTPUT_CAP);
+
+    // Store final round outputs for synthesizer
+    if (capBullR2) this.deps.workspace.setBullAnalysis(capBullR2);
+    if (capBearR2) this.deps.workspace.setBearAnalysis(capBearR2);
+
+    // Combined analysis includes both rounds
+    const combined = `## Bull Case (Round 1)\n${capBullR1}\n\n## Bull Case (Round 2 — Rebuttal)\n${capBullR2}\n\n## Bear Case (Round 1)\n${capBearR1}\n\n## Bear Case (Round 2 — Rebuttal)\n${capBearR2}`;
     this.deps.workspace.setAnalysis(combined);
+  }
+
+  private capOutput(raw: string, cap: number): string {
+    return raw.length > cap ? raw.slice(0, cap) : raw;
+  }
+
+  /** Run a single agent and store its output in the workspace */
+  private async runAgent(role: AgentRole, complexity: QueryComplexity) {
+    const agent = this.createAgent(role, complexity);
+    const output = await agent.run();
+
+    if (output.facts.length > 0) this.deps.workspace.addFacts(output.facts);
+    if (output.plan) this.deps.workspace.setPlan(output.plan);
+    if (output.answer) this.deps.workspace.setAnswer(output.answer);
+
+    return output;
+  }
+
+  /**
+   * Run the validator with optional reflexion loop.
+   * If the validator finds significant issues and reflexion is enabled,
+   * generates a reflection, re-runs affected research tasks + analyst, then re-validates.
+   */
+  private async runValidatorWithReflexion(complexity: QueryComplexity): Promise<void> {
+    const maxRounds = this.getMaxReflexionRounds();
+    let reflexionRound = 0;
+
+    while (true) {
+      // Check if we should skip validation entirely
+      if (this.shouldSkipValidator()) {
+        log.info("Skipping validator — fact confidence is uniformly high");
+        break;
+      }
+
+      // Run validator
+      await this.runAgent("validator", complexity);
+
+      // Check if reflexion is needed
+      const issues = this.deps.workspace.validationIssues ?? [];
+      const dataQualityScore = this.deps.workspace.dataQualityScore ?? 1;
+      const hasErrors = issues.some((i) => i.severity === "error");
+      const lowQuality = dataQualityScore < 0.7;
+
+      if ((!hasErrors && !lowQuality) || reflexionRound >= maxRounds || !this.isReflexionEnabled()) {
+        break; // Quality acceptable, or limits reached
+      }
+
+      // Generate reflection
+      reflexionRound++;
+      const plan = this.deps.workspace.plan;
+      if (!plan) break; // No plan = no tasks to re-run
+
+      const reflection = await this.generateReflection(issues, dataQualityScore, plan);
+      if (!reflection.shouldReflect || reflection.tasksToRerun.length === 0) {
+        break; // LLM decided reflection isn't needed
+      }
+
+      // Store reflection and emit events
+      const summary: ReflectionSummary = {
+        round: reflexionRound,
+        issuesAddressed: reflection.affectedFactIds,
+        guidance: reflection.guidance,
+        tasksToRerun: reflection.tasksToRerun,
+      };
+      this.deps.workspace.addReflectionSummary(summary);
+      this.deps.bus.emit({ type: "pipeline:reflection_start", round: reflexionRound, tasksToRerun: reflection.tasksToRerun });
+      log.info({ round: reflexionRound, tasksToRerun: reflection.tasksToRerun }, "Reflexion triggered");
+
+      // Clear old validation before re-run
+      this.deps.workspace.clearValidationIssues();
+
+      // Re-run affected research tasks
+      await this.executeSelectiveResearch(reflection.tasksToRerun, complexity);
+
+      // Re-run analyst with updated facts + reflection context
+      if (this.isBullBearEnabled()) {
+        await this.runBullBearDebate(complexity);
+      } else {
+        const output = await this.runAgent("analyst", complexity);
+        if (output.rawOutput) {
+          this.deps.workspace.setAnalysis(this.capOutput(output.rawOutput, ANALYST_OUTPUT_CAP));
+        }
+      }
+
+      const durationMs = Math.round(performance.now());
+      this.deps.bus.emit({ type: "pipeline:reflection_complete", round: reflexionRound, durationMs });
+
+      // Loop back to validator
+    }
+  }
+
+  /**
+   * Generate a reflection summary from validation issues using the fast model.
+   * Decides which research tasks should be re-run.
+   */
+  private async generateReflection(
+    issues: readonly ValidationIssue[],
+    dataQualityScore: number,
+    plan: ResearchPlan,
+  ): Promise<{ shouldReflect: boolean; guidance: string; tasksToRerun: string[]; affectedFactIds: string[] }> {
+    const reflectionSchema = z.object({
+      shouldReflect: z.boolean().describe("Whether issues are severe enough to warrant re-research"),
+      guidance: z.string().describe("Specific instructions for re-running research and analysis"),
+      affectedTaskIds: z.array(z.string()).describe("Research task IDs that should be re-run"),
+      affectedFactIds: z.array(z.string()).describe("Fact IDs that have issues"),
+    });
+
+    const result = await generateObject({
+      model: this.deps.router.fast,
+      schema: reflectionSchema,
+      system: `You are evaluating validation results to decide if research should be re-run.
+Given validation issues and the original research plan, determine:
+1. Whether the issues are severe enough to warrant re-research
+2. Which specific research tasks should be re-run to address the issues
+3. Concrete guidance for the re-run agents on what to fix or look for`,
+      prompt: `Validation Issues:\n${JSON.stringify(issues, null, 2)}\n\nData Quality Score: ${dataQualityScore}\n\nResearch Plan Tasks:\n${JSON.stringify(plan.tasks.map((t) => ({ id: t.id, description: t.description })), null, 2)}`,
+    });
+
+    if (result.usage) {
+      const { provider, model } = parseModelId(this.deps.router.fastModelName);
+      this.deps.tokenTracker.record(provider, model, result.usage.promptTokens, result.usage.completionTokens);
+    }
+
+    return {
+      shouldReflect: result.object.shouldReflect,
+      guidance: result.object.guidance,
+      tasksToRerun: result.object.affectedTaskIds,
+      affectedFactIds: result.object.affectedFactIds,
+    };
+  }
+
+  /**
+   * Re-execute only specific research tasks identified by the reflection.
+   * Resets their status to pending and runs them through the wave executor.
+   */
+  private async executeSelectiveResearch(taskIds: string[], complexity: QueryComplexity): Promise<void> {
+    const plan = this.deps.workspace.plan;
+    if (!plan) return;
+
+    for (const task of plan.tasks) {
+      if (taskIds.includes(task.id)) {
+        task.status = "pending";
+        task.result = undefined;
+      }
+    }
+
+    await this.executeResearchPlan(complexity);
+  }
+
+  /** Check if reflexion is enabled via config */
+  private isReflexionEnabled(): boolean {
+    try {
+      return loadConfig().reflexionEnabled;
+    } catch {
+      return true;
+    }
+  }
+
+  /** Get max reflexion rounds from config */
+  private getMaxReflexionRounds(): number {
+    try {
+      return loadConfig().maxReflexionRounds;
+    } catch {
+      return 1;
+    }
   }
 
   private async classifyQuery(query: string) {

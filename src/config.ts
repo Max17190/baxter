@@ -35,6 +35,8 @@ const configSchema = z.object({
 
   // Pipeline tuning
   bullBearEnabled: z.coerce.boolean().default(false),
+  reflexionEnabled: z.coerce.boolean().default(true),
+  maxReflexionRounds: z.coerce.number().int().min(0).max(3).default(1),
 
   // General
   logLevel: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
@@ -70,6 +72,8 @@ export function loadConfig(): Config {
     langsmithProject: env.LANGSMITH_PROJECT,
     otelEndpoint: env.OTEL_EXPORTER_OTLP_ENDPOINT,
     bullBearEnabled: env.BULL_BEAR_ENABLED,
+    reflexionEnabled: env.REFLEXION_ENABLED,
+    maxReflexionRounds: env.MAX_REFLEXION_ROUNDS,
     logLevel: env.LOG_LEVEL,
     cacheTtlSeconds: env.CACHE_TTL_SECONDS,
     maxToolConcurrency: env.MAX_TOOL_CONCURRENCY,

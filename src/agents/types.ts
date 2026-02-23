@@ -13,7 +13,10 @@ export type AgentEvent =
   | { type: "pipeline:start"; complexity: QueryComplexity; agents: AgentRole[] }
   | { type: "pipeline:complete"; durationMs: number; answer: SynthesizedAnswer }
   | { type: "pipeline:error"; error: string }
-  | { type: "pipeline:skill_matched"; skill: string };
+  | { type: "pipeline:skill_matched"; skill: string }
+  | { type: "pipeline:debate_round"; round: number }
+  | { type: "pipeline:reflection_start"; round: number; tasksToRerun: string[] }
+  | { type: "pipeline:reflection_complete"; round: number; durationMs: number };
 
 /** Agent configuration */
 export interface AgentConfig {
@@ -43,11 +46,22 @@ export interface WorkspaceState {
   analysis?: string;
   bullAnalysis?: string;
   bearAnalysis?: string;
+  bullAnalysisRound1?: string;
+  bearAnalysisRound1?: string;
   validationIssues?: ValidationIssue[];
+  dataQualityScore?: number;
+  reflectionSummaries?: ReflectionSummary[];
   answer?: SynthesizedAnswer;
   matchedSkill?: SkillMeta;
   priorFacts?: Fact[];
   conversationContext?: string;
+}
+
+export interface ReflectionSummary {
+  round: number;
+  issuesAddressed: string[];
+  guidance: string;
+  tasksToRerun: string[];
 }
 
 export interface ValidationIssue {

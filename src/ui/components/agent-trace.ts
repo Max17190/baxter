@@ -78,6 +78,32 @@ export class AgentTrace implements Component {
         }
         break;
       }
+      case "pipeline:debate_round": {
+        this.entries.push({
+          agent: "analyst",
+          status: "running",
+          message: `debate round ${event.round}`,
+          children: [],
+        });
+        break;
+      }
+      case "pipeline:reflection_start": {
+        this.entries.push({
+          agent: "validator",
+          status: "running",
+          message: `reflexion round ${event.round} (re-running ${event.tasksToRerun.length} tasks)`,
+          children: [],
+        });
+        break;
+      }
+      case "pipeline:reflection_complete": {
+        const last = this.entries[this.entries.length - 1];
+        if (last && last.message.startsWith("reflexion")) {
+          last.status = "complete";
+          last.durationMs = event.durationMs;
+        }
+        break;
+      }
       case "pipeline:complete": {
         this.stopSpinner();
         break;

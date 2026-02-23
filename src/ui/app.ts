@@ -6,7 +6,6 @@ import {
   Markdown,
   Spacer,
   type MarkdownTheme,
-  truncateToWidth,
 } from "@mariozechner/pi-tui";
 import { ChatLog } from "./components/chat-log.js";
 import { AgentTrace } from "./components/agent-trace.js";

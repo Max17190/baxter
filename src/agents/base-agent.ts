@@ -61,7 +61,7 @@ export abstract class BaseAgent {
     });
 
     try {
-      const context = this.deps.workspace.buildContextFor(role);
+      const context = this.getContext();
       const tools = this.config.tools
         ? this.deps.toolRegistry.toAISDKTools(this.config.tools)
         : {};
@@ -139,6 +139,11 @@ export abstract class BaseAgent {
         durationMs,
       };
     }
+  }
+
+  /** Build context for this agent. Subclasses can override to append additional context. */
+  protected getContext(): string {
+    return this.deps.workspace.buildContextFor(this.config.role);
   }
 
   /** Create a fact with proper provenance */

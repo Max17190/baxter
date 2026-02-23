@@ -78,6 +78,7 @@ export class ValidatorAgent extends BaseAgent {
 
       const issues: ValidationIssue[] = result.object.issues;
       this.deps.workspace.setValidationIssues(issues);
+      this.deps.workspace.setDataQualityScore(result.object.dataQualityScore);
 
       // Update fact validation status
       for (const fact of this.deps.workspace.facts) {
