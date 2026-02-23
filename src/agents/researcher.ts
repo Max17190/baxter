@@ -1,6 +1,7 @@
 import { BaseAgent, type BaseAgentDeps } from "./base-agent.js";
 import type { AgentOutput } from "./types.js";
 import type { QueryComplexity, ResearchTask } from "../types.js";
+import type { ToolSourceInfo } from "../tools/registry.js";
 import { extractFactsWithLLM } from "./fact-extractor.js";
 
 const SYSTEM_PROMPT = `You are a financial research agent. Your job is to gather data and facts using the available tools.
@@ -47,8 +48,12 @@ export class ResearcherAgent extends BaseAgent {
     this.task = task;
   }
 
-  protected async processResult(text: string): Promise<Partial<AgentOutput>> {
-    const facts = await extractFactsWithLLM(text, this.deps.router.fast, "researcher", ["research"]);
+  protected async processResult(
+    text: string,
+    _fullResult: unknown,
+    toolSources?: Array<{ toolName: string } & ToolSourceInfo>,
+  ): Promise<Partial<AgentOutput>> {
+    const facts = await extractFactsWithLLM(text, this.deps.router.fast, "researcher", ["research"], toolSources);
     // Don't write to workspace here — the orchestrator handles workspace writes
     // from the returned output. This prevents double-writes and race conditions.
     return { facts };

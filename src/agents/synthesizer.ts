@@ -1,4 +1,4 @@
-import { generateObject } from "ai";
+import { generateObject, streamObject } from "ai";
 import { z } from "zod";
 import { BaseAgent, type BaseAgentDeps } from "./base-agent.js";
 import type { AgentOutput } from "./types.js";
@@ -14,6 +14,7 @@ const answerSchema = z.object({
   citations: z.array(
     z.object({
       id: z.string(),
+      number: z.number().optional().describe("Citation number matching the [N] notation used in content"),
       source: z.string(),
       url: z.string().optional(),
     }),
@@ -37,7 +38,8 @@ const SYSTEM_PROMPT = `You are a financial research synthesizer. Your job is to 
 Guidelines:
 - Write in a professional but accessible tone
 - Use markdown formatting: headers, bullet points, tables where appropriate
-- Always cite your sources using [1], [2] notation
+- Always cite your sources using [N] notation matching the Citation Index numbers provided in your context
+- In the citations array, include the number, source description, and URL from the Citation Index
 - Include a confidence level (0-1) for the overall answer
 - If there are validation issues or conflicting data, mention them as warnings
 - Structure longer answers with clear sections
@@ -47,6 +49,9 @@ Guidelines:
 - Tables should have clear column headers and clean cell values (include units like $, %, x)
 
 Format your answer as a well-structured markdown document.`;
+
+/** Minimum interval between streaming chunk emissions (ms) */
+const STREAM_THROTTLE_MS = 50;
 
 export class SynthesizerAgent extends BaseAgent {
   constructor(deps: BaseAgentDeps) {
@@ -61,7 +66,7 @@ export class SynthesizerAgent extends BaseAgent {
     );
   }
 
-  /** Override run() to go straight to generateObject — avoids wasteful generateText call */
+  /** Override run() — uses streamObject for progressive output, falls back to generateObject */
   async run(): Promise<AgentOutput> {
     const start = performance.now();
     const role = this.config.role;
@@ -73,46 +78,71 @@ export class SynthesizerAgent extends BaseAgent {
     try {
       const context = this.deps.workspace.buildContextFor("synthesizer");
 
-      const result = await generateObject({
-        model: this.model,
-        schema: answerSchema,
-        system: SYSTEM_PROMPT,
-        prompt: context,
-      });
+      // Try streaming first, fall back to generateObject on failure
+      let finalObject: z.infer<typeof answerSchema>;
+      let usage: { promptTokens: number; completionTokens: number } | undefined;
 
-      if (result.usage) {
-        const { provider, model } = parseModelId(this.modelName);
-        this.deps.tokenTracker.record(provider, model, result.usage.promptTokens, result.usage.completionTokens);
+      try {
+        const result = await this.runStreaming(context);
+        finalObject = result.object;
+        usage = result.usage;
+      } catch (streamError) {
+        log.warn({ error: streamError instanceof Error ? streamError.message : String(streamError) }, "Streaming failed, falling back to generateObject");
+        const result = await generateObject({
+          model: this.model,
+          schema: answerSchema,
+          system: SYSTEM_PROMPT,
+          prompt: context,
+        });
+        finalObject = result.object;
+        usage = result.usage;
       }
 
-      const citations: Citation[] = result.object.citations.map((c) => ({
+      if (usage) {
+        const { provider, model } = parseModelId(this.modelName);
+        this.deps.tokenTracker.record(provider, model, usage.promptTokens, usage.completionTokens);
+      }
+
+      // Build citation index for number assignment
+      const citationIndex = this.deps.workspace.buildCitationIndex();
+      const citationUrlMap = new Map<number, string>();
+      for (const entry of citationIndex) {
+        if (entry.sourceUrl) citationUrlMap.set(entry.number, entry.sourceUrl);
+      }
+
+      const citations: Citation[] = finalObject.citations.map((c) => ({
         ...c,
+        // Use URL from citation index if the LLM didn't provide one
+        url: c.url || (c.number ? citationUrlMap.get(c.number) : undefined),
         accessedAt: Date.now(),
       }));
 
-      const tables: AnswerTable[] | undefined = result.object.tables?.map((t) => ({
+      const tables: AnswerTable[] | undefined = finalObject.tables?.map((t) => ({
         title: t.title,
         columns: t.columns,
         rows: t.rows,
       }));
 
       const answer: SynthesizedAnswer = {
-        content: result.object.content,
+        content: finalObject.content,
         citations,
-        confidence: result.object.confidence,
+        confidence: finalObject.confidence,
         factsUsed: this.deps.workspace.facts.map((f) => f.id),
-        warnings: result.object.warnings,
+        warnings: finalObject.warnings,
         tables,
       };
 
       this.deps.workspace.setAnswer(answer);
+
+      // Emit final done chunk
+      this.deps.bus.emit({ type: "synthesizer:chunk", content: finalObject.content, done: true });
 
       const durationMs = Math.round(performance.now() - start);
       log.info({ role, durationMs }, "Agent completed");
       endSpan(span, { "agent.duration_ms": durationMs });
       this.deps.bus.emit({ type: "agent:complete", agent: role, durationMs });
 
-      return { role, facts: [], rawOutput: result.object.content, answer, durationMs };
+      return { role, facts: [], rawOutput: finalObject.content, answer, durationMs };
     } catch (error) {
       const durationMs = Math.round(performance.now() - start);
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -121,6 +151,42 @@ export class SynthesizerAgent extends BaseAgent {
       this.deps.bus.emit({ type: "agent:error", agent: role, error: errorMsg });
       return { role, facts: [], rawOutput: "", durationMs };
     }
+  }
+
+  /** Run streamObject and emit progressive chunks */
+  private async runStreaming(context: string): Promise<{
+    object: z.infer<typeof answerSchema>;
+    usage?: { promptTokens: number; completionTokens: number };
+  }> {
+    const stream = streamObject({
+      model: this.model,
+      schema: answerSchema,
+      system: SYSTEM_PROMPT,
+      prompt: context,
+    });
+
+    let lastEmitTime = 0;
+    let lastContent = "";
+
+    for await (const partial of stream.partialObjectStream) {
+      const now = performance.now();
+      const content = partial.content ?? "";
+
+      // Throttle emissions to avoid render thrash
+      if (content !== lastContent && now - lastEmitTime >= STREAM_THROTTLE_MS) {
+        this.deps.bus.emit({ type: "synthesizer:chunk", content, done: false });
+        lastEmitTime = now;
+        lastContent = content;
+      }
+    }
+
+    const finalObject = await stream.object;
+    const usage = await stream.usage;
+
+    return {
+      object: finalObject,
+      usage: usage ? { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens } : undefined,
+    };
   }
 
   // Required by BaseAgent but never called since we override run()

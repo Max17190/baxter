@@ -115,11 +115,16 @@ export function createWebResearchTool(config: WebResearchConfig) {
         log.debug({ query: params.query, limit: params.limit, backend: backend.name }, "Web search");
         const results = await backend.search(params.query, params.limit ?? 5);
 
+        // Use first result URL as the representative source
+        const firstUrl = Array.isArray(results) && results.length > 0 ? (results[0] as { url?: string }).url : undefined;
+
         return {
           toolName: "web_research",
           success: true,
           data: results,
           durationMs: Math.round(performance.now() - start),
+          sourceUrl: firstUrl,
+          sourceDescription: `Web search: ${params.query} (${backend.name})`,
         };
       } catch (error) {
         return {
@@ -148,7 +153,7 @@ async function handleScrape(url: string, config: WebResearchConfig, start: numbe
     if (!response.success) {
       return { toolName: "web_research", success: false, error: response.error ?? "Scrape failed", durationMs };
     }
-    return { toolName: "web_research", success: true, data: response, durationMs };
+    return { toolName: "web_research", success: true, data: response, durationMs, sourceUrl: url, sourceDescription: `Web scrape: ${url}` };
   }
 
   // Fallback: use web_fetch logic directly
@@ -179,5 +184,7 @@ async function handleScrape(url: string, config: WebResearchConfig, start: numbe
     success: true,
     data: { url, markdown: content.slice(0, 50_000) },
     durationMs: Math.round(performance.now() - start),
+    sourceUrl: url,
+    sourceDescription: `Web scrape: ${url}`,
   };
 }

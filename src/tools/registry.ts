@@ -6,10 +6,17 @@ import type { ToolResult } from "../types.js";
 // biome-ignore lint/suspicious/noExplicitAny: Registry stores heterogeneous tool types
 type AnyToolDefinition = ToolDefinition<z.ZodType<any>>;
 
+/** Source info from the most recent tool execution */
+export interface ToolSourceInfo {
+  sourceUrl?: string;
+  sourceDescription?: string;
+}
+
 /** Central registry for all available tools */
 export class ToolRegistry {
   private tools = new Map<string, AnyToolDefinition>();
   private cache = createCache<{ result: ToolResult }>({ maxSize: 200, ttlMs: 3600_000 });
+  private _recentSources = new Map<string, ToolSourceInfo>();
 
   // biome-ignore lint/suspicious/noExplicitAny: Accept any tool definition
   register(tool: ToolDefinition<any>): void {
@@ -55,14 +62,25 @@ export class ToolRegistry {
           if (isCacheable) {
             const cacheKey = `${tool.name}:${JSON.stringify(params)}`;
             const cached = this.cache.get(cacheKey);
-            if (cached) return cached.result.data;
+            if (cached) {
+              if (cached.result.sourceUrl || cached.result.sourceDescription) {
+                this._recentSources.set(tool.name, { sourceUrl: cached.result.sourceUrl, sourceDescription: cached.result.sourceDescription });
+              }
+              return cached.result.data;
+            }
             const toolResult = await tool.execute(params);
             if (toolResult.success) {
               this.cache.set(cacheKey, { result: toolResult });
             }
+            if (toolResult.sourceUrl || toolResult.sourceDescription) {
+              this._recentSources.set(tool.name, { sourceUrl: toolResult.sourceUrl, sourceDescription: toolResult.sourceDescription });
+            }
             return toolResult.data;
           }
           const toolResult = await tool.execute(params);
+          if (toolResult.sourceUrl || toolResult.sourceDescription) {
+            this._recentSources.set(tool.name, { sourceUrl: toolResult.sourceUrl, sourceDescription: toolResult.sourceDescription });
+          }
           return toolResult.data;
         },
       };
@@ -76,6 +94,13 @@ export class ToolRegistry {
 
   get names(): string[] {
     return Array.from(this.tools.keys());
+  }
+
+  /** Get the most recent source info for a tool and clear it */
+  getRecentSource(toolName: string): ToolSourceInfo | undefined {
+    const source = this._recentSources.get(toolName);
+    if (source) this._recentSources.delete(toolName);
+    return source;
   }
 }
 

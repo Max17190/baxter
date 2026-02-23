@@ -48,6 +48,7 @@ export class Orchestrator {
     let pipelineSpan: ReturnType<typeof startPipelineSpan> | undefined;
 
     // Step 1: Classify query complexity using fast model
+    this.deps.bus.emit({ type: "pipeline:status", message: "Classifying query..." });
     const classification = await this.classifyQuery(query);
     const complexity = classification.complexity;
     this.deps.workspace.setComplexity(complexity);
@@ -76,12 +77,22 @@ export class Orchestrator {
       // Step 2: Run agents in sequence, with special handling for researcher (task graph), analyst (bull/bear), and validator (reflexion)
       for (const agentRole of pipeline) {
         if (agentRole === "researcher" && this.deps.workspace.plan) {
+          this.deps.bus.emit({ type: "pipeline:status", message: "Researching..." });
           await this.executeResearchPlan(complexity);
         } else if (agentRole === "analyst" && complexity === "complex" && this.isBullBearEnabled()) {
+          this.deps.bus.emit({ type: "pipeline:status", message: "Running bull/bear debate..." });
           await this.runBullBearDebate(complexity);
         } else if (agentRole === "validator") {
+          this.deps.bus.emit({ type: "pipeline:status", message: "Validating data..." });
           await this.runValidatorWithReflexion(complexity);
         } else {
+          const statusMessages: Record<string, string> = {
+            planner: "Planning research...",
+            researcher: "Researching...",
+            analyst: "Analyzing...",
+            synthesizer: "Synthesizing answer...",
+          };
+          this.deps.bus.emit({ type: "pipeline:status", message: statusMessages[agentRole] ?? `Running ${agentRole}...` });
           const output = await this.runAgent(agentRole, complexity);
           if (agentRole === "analyst" && output.rawOutput) {
             this.deps.workspace.setAnalysis(this.capOutput(output.rawOutput, ANALYST_OUTPUT_CAP));
@@ -165,7 +176,9 @@ export class Orchestrator {
 
       if (ready.length === 0) break;
 
-      log.info({ wave: 10 - maxWaves, tasks: ready.map((t) => t.id) }, "Research wave starting");
+      const waveNum = 10 - maxWaves;
+      log.info({ wave: waveNum, tasks: ready.map((t) => t.id) }, "Research wave starting");
+      this.deps.bus.emit({ type: "pipeline:status", message: `Research wave ${waveNum} (${ready.length} tasks)...` });
 
       const results = await Promise.allSettled(
         ready.map(async (task) => {

@@ -81,6 +81,7 @@ export interface SynthesizedAnswer {
 /** Citation in the final answer */
 export interface Citation {
   id: string;
+  number?: number;
   source: string;
   url?: string;
   accessedAt: number;
@@ -119,6 +120,8 @@ export interface ToolResult {
   data?: unknown;
   error?: string;
   durationMs: number;
+  sourceUrl?: string;
+  sourceDescription?: string;
 }
 
 /** Token usage tracking */

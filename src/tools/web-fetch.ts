@@ -52,6 +52,8 @@ export function createWebFetchTool() {
           success: true,
           data: { url: params.url, content: cached.content, fromCache: true },
           durationMs: Math.round(performance.now() - start),
+          sourceUrl: params.url,
+          sourceDescription: `Web page: ${params.url}`,
         };
       }
 
@@ -66,6 +68,8 @@ export function createWebFetchTool() {
           success: true,
           data: { url: params.url, content: truncated, truncated: truncated.length < content.length },
           durationMs: Math.round(performance.now() - start),
+          sourceUrl: params.url,
+          sourceDescription: `Web page: ${params.url}`,
         };
       } catch (error) {
         return {

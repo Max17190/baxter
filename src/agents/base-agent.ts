@@ -4,7 +4,7 @@ import { randomUUIDv7 } from "bun";
 import type { Fact } from "../types.js";
 import type { ModelRouter } from "../llm/router.js";
 import type { TokenTracker } from "../llm/token-tracker.js";
-import type { ToolRegistry } from "../tools/registry.js";
+import type { ToolRegistry, ToolSourceInfo } from "../tools/registry.js";
 import type { Workspace } from "./context/workspace.js";
 import type { MessageBus } from "./context/message-bus.js";
 import type { AgentConfig, AgentOutput } from "./types.js";
@@ -66,6 +66,8 @@ export abstract class BaseAgent {
         ? this.deps.toolRegistry.toAISDKTools(this.config.tools)
         : {};
 
+      const toolSources: Array<{ toolName: string } & ToolSourceInfo> = [];
+
       const result = await generateText({
         model: this.model,
         system: this.config.systemPrompt,
@@ -84,6 +86,11 @@ export abstract class BaseAgent {
                 tool: call.toolName,
                 params: call.args,
               });
+              // Collect source info from the registry side-channel
+              const source = this.deps.toolRegistry.getRecentSource(call.toolName);
+              if (source) {
+                toolSources.push({ toolName: call.toolName, ...source });
+              }
             }
           }
           if (toolResults) {
@@ -95,6 +102,11 @@ export abstract class BaseAgent {
                 success: res.result !== undefined,
                 durationMs: 0,
               });
+              // Also check after tool results in case source was set during execution
+              const source = this.deps.toolRegistry.getRecentSource(res.toolName);
+              if (source) {
+                toolSources.push({ toolName: res.toolName, ...source });
+              }
             }
           }
         },
@@ -112,7 +124,7 @@ export abstract class BaseAgent {
       }
 
       const durationMs = Math.round(performance.now() - start);
-      const output = await this.processResult(result.text, result);
+      const output = await this.processResult(result.text, result, toolSources);
 
       log.info({ role, durationMs, facts: output.facts?.length ?? 0, tokens: result.usage?.totalTokens }, "Agent completed");
       endSpan(span, { "agent.duration_ms": durationMs, "agent.facts": output.facts?.length ?? 0 });
@@ -179,5 +191,6 @@ export abstract class BaseAgent {
   protected abstract processResult(
     text: string,
     fullResult: unknown,
+    toolSources?: Array<{ toolName: string } & ToolSourceInfo>,
   ): Promise<Partial<AgentOutput>>;
 }

@@ -16,7 +16,9 @@ export type AgentEvent =
   | { type: "pipeline:skill_matched"; skill: string }
   | { type: "pipeline:debate_round"; round: number }
   | { type: "pipeline:reflection_start"; round: number; tasksToRerun: string[] }
-  | { type: "pipeline:reflection_complete"; round: number; durationMs: number };
+  | { type: "pipeline:reflection_complete"; round: number; durationMs: number }
+  | { type: "pipeline:status"; message: string }
+  | { type: "synthesizer:chunk"; content: string; done: boolean };
 
 /** Agent configuration */
 export interface AgentConfig {

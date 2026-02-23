@@ -1,6 +1,7 @@
 import { BaseAgent, type BaseAgentDeps } from "./base-agent.js";
 import type { AgentOutput } from "./types.js";
 import type { QueryComplexity } from "../types.js";
+import type { ToolSourceInfo } from "../tools/registry.js";
 import { extractFactsWithLLM } from "./fact-extractor.js";
 
 const CALCULATION_TOOLS = [
@@ -85,11 +86,15 @@ export class AnalystAgent extends BaseAgent {
     return context;
   }
 
-  protected async processResult(text: string): Promise<Partial<AgentOutput>> {
+  protected async processResult(
+    text: string,
+    _fullResult: unknown,
+    toolSources?: Array<{ toolName: string } & ToolSourceInfo>,
+  ): Promise<Partial<AgentOutput>> {
     const tags = ["analysis"];
     if (this.perspective !== "neutral") tags.push(this.perspective);
 
-    const facts = await extractFactsWithLLM(text, this.deps.router.fast, "analyst", tags);
+    const facts = await extractFactsWithLLM(text, this.deps.router.fast, "analyst", tags, toolSources);
     // Don't write to workspace here — the orchestrator handles workspace writes
     // from the returned output. This prevents race conditions in bull/bear parallel execution.
     return { facts };

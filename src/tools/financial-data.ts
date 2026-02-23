@@ -85,7 +85,11 @@ async function getExecutors(config: FinancialDataConfig) {
       const cik = await edgar.resolveCIK(p.ticker);
       if (!cik) return { toolName: "edgar_filings", success: false, error: `Could not resolve ticker ${p.ticker} to CIK`, durationMs: Math.round(performance.now() - start) };
       const data = await edgar.getSubmissions(cik);
-      return { toolName: "edgar_filings", success: true, data, durationMs: Math.round(performance.now() - start) };
+      return {
+        toolName: "edgar_filings", success: true, data, durationMs: Math.round(performance.now() - start),
+        sourceUrl: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${cik}&type=&dateb=&owner=include&count=40`,
+        sourceDescription: `SEC EDGAR filings for ${p.ticker}`,
+      };
     } catch (e) { return { toolName: "edgar_filings", success: false, error: e instanceof Error ? e.message : String(e), durationMs: Math.round(performance.now() - start) }; }
   };
 
@@ -97,7 +101,12 @@ async function getExecutors(config: FinancialDataConfig) {
       const data = p.concept
         ? await edgar.getCompanyConcept(cik, "us-gaap", p.concept)
         : await edgar.getCompanyFacts(cik);
-      return { toolName: "edgar_financial_facts", success: true, data, durationMs: Math.round(performance.now() - start) };
+      const paddedCik = cik.padStart(10, "0");
+      return {
+        toolName: "edgar_financial_facts", success: true, data, durationMs: Math.round(performance.now() - start),
+        sourceUrl: `https://data.sec.gov/api/xbrl/companyfacts/CIK${paddedCik}.json`,
+        sourceDescription: `SEC EDGAR XBRL for ${p.ticker}`,
+      };
     } catch (e) { return { toolName: "edgar_financial_facts", success: false, error: e instanceof Error ? e.message : String(e), durationMs: Math.round(performance.now() - start) }; }
   };
 
@@ -111,7 +120,12 @@ async function getExecutors(config: FinancialDataConfig) {
         const start = performance.now();
         try {
           const data = await client.get<Record<string, unknown>>(path, p);
-          return { toolName: name, success: true, data: data[responseKey], durationMs: Math.round(performance.now() - start) };
+          const ticker = p.ticker ?? "";
+          return {
+            toolName: name, success: true, data: data[responseKey], durationMs: Math.round(performance.now() - start),
+            sourceUrl: `https://api.financialdatasets.ai${path}?ticker=${ticker}`,
+            sourceDescription: `Financial Datasets: ${name} for ${ticker}`,
+          };
         } catch (e) { return { toolName: name, success: false, error: e instanceof Error ? e.message : String(e), durationMs: Math.round(performance.now() - start) }; }
       };
     };
@@ -130,7 +144,11 @@ async function getExecutors(config: FinancialDataConfig) {
       const start = performance.now();
       try {
         const data = await client.get<{ results: unknown[] }>("/search", p);
-        return { toolName: "financial_search", success: true, data: data.results, durationMs: Math.round(performance.now() - start) };
+        return {
+          toolName: "financial_search", success: true, data: data.results, durationMs: Math.round(performance.now() - start),
+          sourceUrl: `https://api.financialdatasets.ai/search?query=${encodeURIComponent(p.query ?? "")}`,
+          sourceDescription: `Financial Datasets: search for "${p.query ?? ""}"`,
+        };
       } catch (e) { return { toolName: "financial_search", success: false, error: e instanceof Error ? e.message : String(e), durationMs: Math.round(performance.now() - start) }; }
     };
   }

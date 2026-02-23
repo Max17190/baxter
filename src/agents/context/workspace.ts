@@ -1,4 +1,4 @@
-import type { Fact, QueryComplexity, ResearchPlan, SynthesizedAnswer } from "../../types.js";
+import type { Fact, FactId, QueryComplexity, ResearchPlan, SynthesizedAnswer } from "../../types.js";
 import type { ReflectionSummary, ValidationIssue, WorkspaceState } from "../types.js";
 import type { SkillMeta } from "../../skills/loader.js";
 
@@ -169,6 +169,37 @@ export class Workspace {
     this.state.dataQualityScore = undefined;
   }
 
+  // --- Citation Index ---
+  /** Build a deduplicated citation index from facts with source URLs */
+  buildCitationIndex(): CitationIndexEntry[] {
+    const entries: CitationIndexEntry[] = [];
+    const seen = new Map<string, number>(); // key → citation number
+
+    for (const fact of this.state.facts) {
+      const url = fact.provenance.sourceUrl;
+      const desc = fact.provenance.sourceDescription;
+      // Need at least a description or URL to create a citation
+      if (!url && !desc) continue;
+
+      const key = url ?? desc!;
+      if (seen.has(key)) {
+        // Add this fact to existing entry
+        const idx = seen.get(key)! - 1;
+        entries[idx].factIds.push(fact.id);
+      } else {
+        const number = entries.length + 1;
+        seen.set(key, number);
+        entries.push({
+          number,
+          sourceDescription: desc ?? key,
+          sourceUrl: url,
+          factIds: [fact.id],
+        });
+      }
+    }
+    return entries;
+  }
+
   // --- Context Building ---
   /** Build context string for a specific agent role */
   buildContextFor(agent: string): string {
@@ -261,7 +292,7 @@ export class Workspace {
         }
         break;
 
-      case "synthesizer":
+      case "synthesizer": {
         // Synthesizer needs everything
         if (this.state.plan) {
           parts.push(`\nResearch Plan: ${this.state.plan.objective}`);
@@ -289,7 +320,17 @@ export class Workspace {
             parts.push(`- [${issue.severity}] ${issue.issue}`);
           }
         }
+        // Inject citation index for numbered inline citations
+        const citationIndex = this.buildCitationIndex();
+        if (citationIndex.length > 0) {
+          parts.push(`\nCitation Index (use [N] notation to reference these sources inline):`);
+          for (const entry of citationIndex) {
+            const urlPart = entry.sourceUrl ? ` — ${entry.sourceUrl}` : "";
+            parts.push(`  [${entry.number}] ${entry.sourceDescription}${urlPart}`);
+          }
+        }
         break;
+      }
     }
 
     return parts.join("\n");
@@ -299,4 +340,12 @@ export class Workspace {
   toJSON(): WorkspaceState {
     return structuredClone(this.state);
   }
+}
+
+/** Entry in the citation index for synthesizer */
+export interface CitationIndexEntry {
+  number: number;
+  sourceDescription: string;
+  sourceUrl?: string;
+  factIds: FactId[];
 }

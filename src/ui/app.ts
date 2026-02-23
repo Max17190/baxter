@@ -140,6 +140,11 @@ export class App {
       this.progressBar.complete();
     } else if (event.type === "pipeline:error") {
       this.progressBar.markError();
+    } else if (event.type === "pipeline:status") {
+      this.statusLine.setText(dim(`  ${event.message}`));
+    } else if (event.type === "synthesizer:chunk" && !event.done) {
+      // Progressive display of synthesizer output
+      this.answerDisplay.setText(event.content);
     }
 
     this.tui.requestRender();
@@ -156,8 +161,20 @@ export class App {
 
     try {
       const answer = await this.callbacks.onQuery(query);
-      this.answerDisplay.setText(answer.content);
-      this.chatLog.addMessage("assistant", answer.content);
+
+      // Build content with citation footer
+      let displayContent = answer.content;
+      const citationsWithUrls = answer.citations.filter((c) => c.url);
+      if (citationsWithUrls.length > 0) {
+        displayContent += "\n\n---\n**Sources:**\n";
+        for (const citation of citationsWithUrls) {
+          const num = citation.number ?? citation.id;
+          displayContent += `  [${num}] [${citation.source}](${citation.url})\n`;
+        }
+      }
+
+      this.answerDisplay.setText(displayContent);
+      this.chatLog.addMessage("assistant", displayContent);
 
       // Render tables if present
       if (answer.tables?.length) {

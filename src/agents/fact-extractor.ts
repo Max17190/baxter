@@ -3,6 +3,7 @@ import { z } from "zod";
 import { randomUUIDv7 } from "bun";
 import type { LanguageModelV1 } from "ai";
 import type { Fact, AgentRole } from "../types.js";
+import type { ToolSourceInfo } from "../tools/registry.js";
 
 const factExtractionSchema = z.object({
   facts: z.array(
@@ -39,8 +40,18 @@ export async function extractFactsWithLLM(
   model: LanguageModelV1,
   agentRole: AgentRole,
   defaultTags: string[] = [],
+  toolSources?: Array<{ toolName: string } & ToolSourceInfo>,
 ): Promise<Fact[]> {
   if (!text || text.trim().length < 30) return [];
+
+  // Build a lookup from tool name to source info
+  const sourceMap = new Map<string, ToolSourceInfo>();
+  if (toolSources) {
+    for (const ts of toolSources) {
+      // Later entries override earlier (most recent source wins)
+      sourceMap.set(ts.toolName, { sourceUrl: ts.sourceUrl, sourceDescription: ts.sourceDescription });
+    }
+  }
 
   try {
     const result = await generateObject({
@@ -50,17 +61,27 @@ export async function extractFactsWithLLM(
       prompt: text,
     });
 
-    return result.object.facts.map((f) => ({
-      id: randomUUIDv7(),
-      content: f.content,
-      provenance: {
-        agent: agentRole,
-        tool: f.source,
-        timestamp: Date.now(),
-      },
-      confidence: f.confidence,
-      tags: [...new Set([...defaultTags, ...f.tags])],
-    }));
+    return result.object.facts.map((f) => {
+      // Try to match the fact's reported source to a tool name to get URL
+      const matched = f.source ? sourceMap.get(f.source) : undefined;
+      // If no exact match, use the first available source as fallback
+      const fallbackSource = !matched && sourceMap.size > 0 ? sourceMap.values().next().value : undefined;
+      const source = matched ?? fallbackSource;
+
+      return {
+        id: randomUUIDv7(),
+        content: f.content,
+        provenance: {
+          agent: agentRole,
+          tool: f.source,
+          timestamp: Date.now(),
+          sourceUrl: source?.sourceUrl,
+          sourceDescription: source?.sourceDescription,
+        },
+        confidence: f.confidence,
+        tags: [...new Set([...defaultTags, ...f.tags])],
+      };
+    });
   } catch {
     // Fallback to simple line splitting if LLM extraction fails
     return fallbackExtract(text, agentRole, defaultTags);
