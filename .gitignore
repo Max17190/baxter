@@ -6,3 +6,10 @@ dist/
 .env
 .env.local
 *.log
+
+# Claude Code project instructions (local only)
+CLAUDE.md
+
+# Tests and evals (local development only)
+tests/
+evals/
