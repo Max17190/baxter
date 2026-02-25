@@ -23,17 +23,17 @@ export const firecrawlAgent = defineTool({
       // otherwise fall back to a broad search with result processing.
       let data: unknown;
 
-      if (typeof (client as unknown as Record<string, unknown>).agent === "function") {
-        // Firecrawl agent mode is available
+      if (typeof (client as unknown as Record<string, unknown>).deepResearch === "function") {
+        // Firecrawl agent mode is available (deepResearch)
         const response = await firecrawlBreaker.execute(() =>
           (
             client as unknown as {
-              agent: (
+              deepResearch: (
                 query: string,
                 options?: Record<string, unknown>,
               ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
             }
-          ).agent(params.query),
+          ).deepResearch(params.query, {})
         );
 
         const durationMs = Math.round(performance.now() - start);

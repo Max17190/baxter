@@ -95,7 +95,13 @@ export function createWebResearchTool(config: WebResearchConfig) {
     execute: async (params) => {
       const start = performance.now();
       try {
-        const isUrl = params.query.startsWith("http://") || params.query.startsWith("https://");
+        let isUrl = false;
+        try {
+          const parsed = new URL(params.query);
+          isUrl = (parsed.protocol === "http:" || parsed.protocol === "https:") && !params.query.trim().includes(" ");
+        } catch {
+          isUrl = false;
+        }
 
         if (isUrl) {
           return await handleScrape(params.query, config, start);
